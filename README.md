@@ -1,0 +1,70 @@
+# JAI Card Extractor
+
+A small browser extension that saves a JanitorAI character (and its lorebook) to a file on your computer, so you can back it up or move it to another site.
+
+> Free and open source. If you find it useful and want to support us, check out [inkwell.rip](https://inkwell.rip), the AI roleplay site we build. That's what keeps tools like this coming.
+
+It exports to the formats other AI roleplay sites and apps already understand:
+
+- **SillyTavern character card** (`.card.json`): works with SillyTavern, Agnai, RisuAI, Inkwell, and most other frontends.
+- **Lorebook** (`.lorebook.json`): just the lorebook entries, on their own.
+- **Plain text** (`.txt`): readable by anyone, good for copy/paste.
+- **JanitorAI JSON** (`.jai.json`): closest to the original.
+
+Everything happens on your own computer, in your own browser, while you're signed in. It does not upload anything, there is no account to make, and there is no tracking. It simply reads the character you're already looking at and saves it.
+
+## Installing it (about 2 minutes)
+
+You don't need to know how to code. There's nothing to build or compile.
+
+1. **Download this project.** Click the green **Code** button near the top of this page, then **Download ZIP**. Unzip it somewhere you'll remember, like your Desktop.
+2. **Open your browser's extensions page.** In Chrome, type `chrome://extensions` in the address bar and press Enter. In Edge, use `edge://extensions`.
+3. **Turn on Developer mode** using the switch in the top-right corner.
+4. Click **Load unpacked**, then select the folder you unzipped (the one that contains the file named `manifest.json`).
+
+That's it. The extension is now installed.
+
+> Tip: If you ever move or delete the folder, the extension stops working. Keep it somewhere permanent.
+
+## Using it
+
+1. Go to [janitorai.com](https://janitorai.com) and open a character's page. Make sure you're signed in. (Some issues may arise, and some lorebooks might not be found if said character has the definitions private.)
+2. Click **Extract card** in the bottom-right corner.
+3. Click **Quick scan**. You don't need to start a chat first.
+   - **Deep scan** also reads every lorebook attached to the character. It makes a few more requests, so it is slower but more complete.
+4. You'll see a list of every part of the character, each with a checkbox. Untick anything you don't want to keep (for example a jailbreak line or a system prompt that got bundled in). **Select all** and **Select none** are there to help.
+5. Click one of the export buttons. Only the ticked parts are saved.
+
+By default the lorebook is bundled into the character card. If a character has **more than one** lorebook (for example a personal one plus a shared world book), a **Separate books** button appears after a deep scan; it saves each lorebook as its own file so a shared world book stays reusable across other characters.
+
+## Moving a character to another site
+
+Most sites have an "import" option that reads the **SillyTavern .json** file this extension makes. Open that site's importer, choose the file (or paste its contents), and the character comes across with its lorebook.
+
+For [Inkwell](https://inkwell.rip) specifically, you can import a character from a URL and skip the need for this tool entirely (it also supports SpicyChat, Chub, and Character.AI). Dropping the `.card.json` in works too.
+
+## Is this allowed?
+
+This is a personal backup tool. It only fetches things you can already see while signed in, and saves them in an open format. It doesn't get around any paywall or unlock anything you couldn't otherwise view.
+
+That said, JanitorAI's terms may restrict automated access or bulk downloading. Use it for your own characters and personal backups, credit creators when you re-share their work, and don't hammer the site. How you use it is on you.
+
+## Privacy
+
+- Scanned character data never leaves your browser. There are no analytics and no outside code.
+- The extension asks for **no special permissions** and only runs on janitorai.com pages you open yourself.
+- Scanning, reviewing, and saving all happen locally in your browser.
+
+## For developers
+
+The extension uses plain JavaScript with no dependencies or build step. Edit the files in `src/` and reload it from the extensions page. The export and normalization logic is covered by tests:
+
+```sh
+node --test
+```
+
+`src/scraper.js` reads the character; `src/exporters.js` converts it; `src/panel.js` and `src/panel.css` are the on-page panel. Pull requests are welcome. Extra export formats and support for other source sites are the obvious next things to add.
+
+## License
+
+[MIT](LICENSE).

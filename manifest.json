@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "JAI Card Extractor",
+  "version": "0.2.3",
+  "description": "Extract a JanitorAI character card + its lorebook and export to SillyTavern JSON, a lorebook (World Info) JSON, or plain text. Runs entirely in your browser using your own session - nothing is sent to any server.",
+  "icons": {
+    "128": "assets/inkwell-mark.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://janitorai.com/*",
+        "https://www.janitorai.com/*"
+      ],
+      "js": [
+        "src/scraper.js",
+        "src/exporters.js",
+        "src/panel.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/panel.css",
+        "assets/inkwell-mark.png",
+        "assets/inkwell-wordmark.webp",
+        "assets/fonts/google-sans-flex-latin-ext-wght-normal.woff2",
+        "assets/fonts/google-sans-flex-latin-wght-normal.woff2",
+        "assets/fonts/inter-latin-ext-wght-normal.woff2",
+        "assets/fonts/inter-latin-wght-normal.woff2"
+      ],
+      "matches": [
+        "https://janitorai.com/*",
+        "https://www.janitorai.com/*"
+      ]
+    }
+  ],
+  "permissions": [],
+  "host_permissions": []
+}
