@@ -3,46 +3,74 @@
 
   const NS = (window.JAIX = window.JAIX || {});
 
-  const LABELS = {
-    description: [
-      "introduction",
-      "introducción",
-      "description",
-      "descripción",
-      "descripcion",
-      "character description",
-      "descripción del personaje"
-    ],
-    definition: [
-      "definition",
-      "definición",
-      "definicion",
-      "character definition"
-    ],
-    personality: ["personality", "personalidad"],
-    scenario: ["scenario", "escenario", "setting", "context"],
-    greeting: [
-      "greeting",
-      "welcome message",
-      "first message",
-      "initial message",
-      "mensaje de bienvenida",
-      "saludo",
-      "primer mensaje"
-    ],
-    exampleDialogue: [
-      "example dialogue",
-      "example dialogues",
-      "example conversation",
-      "sample conversation",
-      "examples",
-      "diálogo de ejemplo",
-      "diálogos de ejemplo",
-      "conversación de ejemplo"
-    ],
-    creator: ["creator", "author", "created by", "creador", "creado por", "autor"],
-    tags: ["tags", "etiquetas"]
-  };
+ const LABELS = {
+  description: [
+    "description",
+    "bio",
+    "introduction",
+    "intro",
+    "descripción",
+    "introducción"
+  ],
+  definition: [
+    "definition",
+    "character definition",
+    "definición",
+    "definición del personaje"
+  ],
+  personality: [
+    "personality",
+    "personality traits",
+    "character traits",
+    "traits",
+    "personalidad",
+    "rasgos de personalidad",
+    "rasgos"
+  ],
+  scenario: [
+    "scenario",
+    "setting",
+    "situation",
+    "context",
+    "escenario",
+    "situación",
+    "contexto"
+  ],
+  greeting: [
+    "greeting",
+    "welcome message",
+    "first message",
+    "opening message",
+    "starter",
+    "saludo",
+    "mensaje de bienvenida",
+    "mensaje inicial"
+  ],
+  exampleDialogue: [
+    "example dialogue",
+    "example dialogues",
+    "example conversation",
+    "sample conversation",
+    "diálogo de ejemplo",
+    "diálogos de ejemplo",
+    "conversación de ejemplo"
+  ],
+  creator: [
+    "creator",
+    "author",
+    "created by",
+    "creador",
+    "autor",
+    "creado por"
+  ],
+  tags: [
+    "tags",
+    "tag",
+    "etiquetas",
+    "categorías",
+    "categoría"
+  ]
+};
 
   function normLabel(value) {
     return String(value || "")
