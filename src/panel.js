@@ -131,7 +131,7 @@
           el("div", { class: "jaix-cardname", text: card.name }),
           el("div", {
             class: "jaix-cardmeta",
-            text: "JanitorAI card",
+            text: "Emochi card",
           }),
         ]),
         el("div", { class: "jaix-counts" }, [
