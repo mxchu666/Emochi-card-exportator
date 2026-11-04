@@ -184,20 +184,7 @@
     return parts[parts.length - 1] || "";
   }
 
-  function readName() {
-    const h1 = [...document.querySelectorAll("h1")]
-      .find((el) => isVisible(el) && visibleText(el));
-
-    const metaTitle =
-      document.querySelector('meta[property="og:title"]')?.content || "";
-
-    const raw = visibleText(h1) || metaTitle || document.title || "";
-
-    return raw
-      .replace(/\s*[|·—–-]\s*Emochi.*$/i, "")
-      .trim();
-  }
-
+}
   function absoluteHttpUrl(value) {
     try {
       const url = new URL(value, location.href);
