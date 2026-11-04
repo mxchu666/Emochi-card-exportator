@@ -229,89 +229,63 @@ function readAvatarUrl(name) {
 function parseTags(raw) {
   return [...new Set(
     String(raw || "")
-      .split(/[,;\n•|]+/)
+      .split(/[,;\n\u2022|]+/)
       .map((tag) => tag.trim().replace(/^#/, ""))
       .filter(Boolean)
   )];
 } 
 
-  function currentCharacterId() {
-    const parts = location.pathname.split("/").filter(Boolean);
-    return parts[parts.length - 1] || "";
+ async function scanCharacter(opts = {}) {
+  if (typeof opts.onProgress === "function") {
+    opts.onProgress("Leyendo los datos visibles de la ficha...");
   }
 
-}
-  function absoluteHttpUrl(value) {
-    try {
-      const url = new URL(value, location.href);
-      return ["http:", "https:"].includes(url.protocol) ? url.href : "";
-    } catch {
-      return "";
-    }
-  }
+  const name = readName();
 
-  function readAvatarUrl(name) {
-    const metaImage =
-      document.querySelector('meta[property="og:image"]')?.content ||
-      document.querySelector('meta[name="twitter:image"]')?.content;
-
-    if (metaImage) return absoluteHttpUrl(metaImage);
-
-    const images = [...document.images].filter(isVisible);
-    const namedImage = images.find((img) =>
-      name &&
-      String(img.alt || "").toLowerCase().includes(name.toLowerCase())
-    );
-
-    const image =
-      namedImage ||
-      images.find((img) => img.naturalWidth >= 64 || img.width >= 64);
-
-    return absoluteHttpUrl(image?.currentSrc || image?.src || "");
-  }
-
-  function parseTags(raw) {
-    return [...new Set(
-      String(raw || "")
-        .split(/[,;\n•|]+/)
-        .map((tag) => tag.trim().replace(/^#/, ""))
-        .filter(Boolean)
-    )];
-  }
-
- const hasCharacterData = [
-  fields.description,
-  fields.definition,
-  fields.personality,
-  fields.scenario,
-  fields.greeting,
-  fields.exampleDialogue
-].some((value) => typeof value === "string" && value.trim());
-
-if (!hasCharacterData) {
-  const error = new Error("no-visible-character-fields");
-  error.friendly =
-    "No encontré datos visibles de la ficha. Abre el panel de información del personaje o verifica que esos campos se muestren en esta página.";
-  throw error;
-  }
-
-    return {
-      id: currentCharacterId(),
-      name: name || "Personaje de Emochi",
-      creator: readField("creator"),
-      avatarUrl: readAvatarUrl(name),
-      nsfw: false,
-      tags: parseTags(readField("tags")),
-      sourceUrl: location.href,
-      fields,
-      scriptRefs: [],
-      lorebooks: [],
-      failedLorebooks: 0
-    };
-  }
-
-  NS.scraper = {
-    currentCharacterId,
-    scanCharacter
+  const fields = {
+    description: readField("description"),
+    definition: readField("definition"),
+    personality: readField("personality"),
+    scenario: readField("scenario"),
+    greeting: readField("greeting"),
+    altGreetings: [],
+    exampleDialogue: readField("exampleDialogue")
   };
+
+  const hasCharacterData = [
+    fields.description,
+    fields.definition,
+    fields.personality,
+    fields.scenario,
+    fields.greeting,
+    fields.exampleDialogue
+  ].some((value) => typeof value === "string" && value.trim());
+
+  if (!hasCharacterData) {
+    const error = new Error("no-visible-character-fields");
+    error.friendly =
+      "No encontré campos visibles de la ficha. Abre su información y vuelve a intentarlo.";
+    throw error;
+  }
+
+  const pathParts = location.pathname.split("/").filter(Boolean);
+
+  return {
+    id: pathParts[pathParts.length - 1] || "",
+    name: name || "Personaje de Emochi",
+    creator: readField("creator"),
+    avatarUrl: readAvatarUrl(name),
+    nsfw: false,
+    tags: parseTags(readField("tags")),
+    sourceUrl: location.href,
+    fields,
+    scriptRefs: [],
+    lorebooks: [],
+    failedLorebooks: 0
+  };
+}
+
+NS.scraper = {
+  scanCharacter
+};
 })();
