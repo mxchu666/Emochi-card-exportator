@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Emochi Character Card Exporter",
   "version": "0.1.0",
-  "description": "Exporta localmente fichas visibles de Emochi a JSON de SillyTavern y PNG.",
+  "description": "Exporta fichas visibles de Emochi a JSON de SillyTavern y PNG.",
   "icons": {
     "128": "assets/inkwell-mark.png"
   },
@@ -13,10 +13,10 @@
         "https://www.emochi.com/*"
       ],
       "js": [
-      "src/scraper.js",
-      "src/exporters.js",
-      "src/panel.js"
-    ]
+        "src/scraper.js",
+        "src/exporters.js",
+        "src/panel.js"
+      ],
       "run_at": "document_idle"
     }
   ],
