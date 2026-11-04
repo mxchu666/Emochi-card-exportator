@@ -216,42 +216,51 @@
     renderResult();
   }
 
-  async function scan(deep) {
+    async function scan(deep) {
     if (state.busy) return;
+
     state.busy = true;
     syncBusy();
-    setStatus(deep ? "Deep scanning..." : "Scanning...", "busy");
+    setStatus(deep ? "Escaneando..." : "Leyendo ficha...", "busy");
+
     try {
       if (!NS.scraper || typeof NS.scraper.scanCharacter !== "function") {
-      throw new Error(
-      "No se cargó el lector. Comprueba src/scraper.js y revisa la consola."
-      );
-    }
+        throw new Error("No se cargó src/scraper.js.");
+      }
+
+      if (!exporters || typeof exporters.toBlocks !== "function") {
+        throw new Error("No se cargó src/exporters.js.");
+      }
+
       const card = await NS.scraper.scanCharacter({
+        deep: Boolean(deep),
+        onProgress: (message) => setStatus(message, "busy")
+      });
+
+      if (!card || typeof card !== "object") {
+        throw new Error("El lector no devolvió una ficha válida.");
+      }
+
       state.card = card;
       state.blocks = exporters.toBlocks(card);
-      state.included = new Set(state.blocks.map((b) => b.id));
-      if (!deep && card.scriptRefs.length) {
-        const label = card.scriptRefs.length === 1 ? "lorebook" : "lorebooks";
-        state.note =
-          card.scriptRefs.length + " " + label + " found. Run Deep scan to include the entries.";
-      } else if (deep && card.failedLorebooks) {
-        const label = card.failedLorebooks === 1 ? "lorebook" : "lorebooks";
-        state.note =
-          card.failedLorebooks + " " + label + " could not be read. Try the Deep scan again.";
-      } else {
-        state.note = "";
-      }
+      state.included = new Set(state.blocks.map((block) => block.id));
+
+      state.note = deep
+        ? "La lectura de lorebooks aún no está implementada; se exportan los campos visibles de la ficha."
+        : "";
+
       setStatus("", null);
       if (ui) renderResult();
-    } catch (e) {
+    } catch (error) {
       state.card = null;
       state.blocks = [];
       state.included = new Set();
       state.note = "";
+
       if (ui) renderResult();
-      const message = e && (e.friendly || e.message);
-      setStatus(message || "Scan failed.", "err");
+
+      const message = error && (error.friendly || error.message);
+      setStatus(message || "Falló la lectura de la ficha.", "err");
     } finally {
       state.busy = false;
       syncBusy();
