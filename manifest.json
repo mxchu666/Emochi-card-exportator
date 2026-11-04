@@ -13,10 +13,10 @@
         "https://www.emochi.com/*"
       ],
       "js": [
-        "src/scraper.js",
-        "src/exporters.js",
-        "src/panel.js"
-      ],
+      "src/scraper.js",
+      "src/exporters.js",
+      "src/panel.js"
+    ]
       "run_at": "document_idle"
     }
   ],
