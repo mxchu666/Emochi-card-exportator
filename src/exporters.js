@@ -239,6 +239,7 @@
     section("Personality", c.personality);
     section("Scenario", c.scenario);
     section("Example dialogue", c.exampleDialogue);
+    section("Definition", c.definition);
     if (c.entries.length) {
       out.push("## Lorebook (" + c.entries.length + " entries)");
       out.push("");
@@ -262,15 +263,166 @@
     return [...normalized].slice(0, 60).join("") || "character";
   }
 
-  NS.exporters = {
+  function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, payload) {
+  const typeBytes = new TextEncoder().encode(type);
+  const chunk = new Uint8Array(payload.length + 12);
+  const view = new DataView(chunk.buffer);
+
+  view.setUint32(0, payload.length);
+  chunk.set(typeBytes, 4);
+  chunk.set(payload, 8);
+  view.setUint32(
+    chunk.length - 4,
+    crc32(chunk.subarray(4, chunk.length - 4))
+  );
+
+  return chunk;
+}
+
+async function makeAvatarPngBytes(name, avatarUrl) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No se pudo crear el PNG.");
+
+  function drawPlaceholder() {
+    const gradient = ctx.createLinearGradient(0, 0, 512, 512);
+    gradient.addColorStop(0, "#303a54");
+    gradient.addColorStop(1, "#8a6a91");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 512, 512);
+
+    const initials = String(name || "?")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => Array.from(part)[0] || "")
+      .join("")
+      .toUpperCase();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 140px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initials || "?", 256, 256);
+  }
+
+  drawPlaceholder();
+
+  if (avatarUrl) {
+    try {
+      const image = new Image();
+
+      // Solicita una imagen sin credenciales. Si el servidor no permite CORS,
+      // se conserva la imagen genérica.
+      if (/^https?:/i.test(avatarUrl)) {
+        image.crossOrigin = "anonymous";
+        image.referrerPolicy = "no-referrer";
+      }
+
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Timeout de imagen")),
+          5000
+        );
+
+        image.onload = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        image.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error("No se pudo cargar el avatar"));
+        };
+        image.src = avatarUrl;
+      });
+
+      ctx.clearRect(0, 0, 512, 512);
+      const scale = Math.max(
+        512 / image.naturalWidth,
+        512 / image.naturalHeight
+      );
+      const width = image.naturalWidth * scale;
+      const height = image.naturalHeight * scale;
+
+      ctx.drawImage(
+        image,
+        (512 - width) / 2,
+        (512 - height) / 2,
+        width,
+        height
+      );
+    } catch {
+      drawPlaceholder();
+    }
+  }
+
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/png")
+  );
+  if (!blob) throw new Error("No se pudo generar el PNG.");
+
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function tavernPngV2(card, blocks, included) {
+  const cardData = tavernCardV2(card, blocks, included);
+  const png = await makeAvatarPngBytes(card.name, card.avatarUrl);
+
+  if (String.fromCharCode(...png.subarray(12, 16)) !== "IHDR") {
+    throw new Error("La imagen generada no es un PNG válido.");
+  }
+
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  const ihdrLength = view.getUint32(8);
+  const insertAt = 8 + 12 + ihdrLength;
+
+  const cardBase64 = bytesToBase64(
+    new TextEncoder().encode(JSON.stringify(cardData))
+  );
+  const textPayload = new TextEncoder().encode("chara\0" + cardBase64);
+  const metadataChunk = pngChunk("tEXt", textPayload);
+
+  const result = new Uint8Array(png.length + metadataChunk.length);
+  result.set(png.subarray(0, insertAt), 0);
+  result.set(metadataChunk, insertAt);
+  result.set(png.subarray(insertAt), insertAt + metadataChunk.length);
+
+  return new Blob([result], { type: "image/png" });
+}
+   NS.exporters = {
     toBlocks,
     rebuild,
     tavernCardV2,
+    tavernPngV2,
     lorebookJson,
     lorebooksSeparate,
     janitorJson,
     plainText,
     slug,
-    FIELD_LABELS,
+    FIELD_LABELS
   };
 })();
