@@ -144,40 +144,96 @@
   }
 
   function readField(key) {
-    const aliases = new Set((LABELS[key] || []).map(normLabel));
-    const selector =
-      'label,dt,h1,h2,h3,h4,h5,legend,p,span,strong,b,div,button,[aria-label],[data-label]';
+  const aliases = new Set((LABELS[key] || []).map(normLabel));
+  const selector =
+    'label,dt,h1,h2,h3,h4,h5,legend,p,span,strong,b,div,button,[aria-label],[data-label]';
 
-    const nodes = [...document.querySelectorAll(selector)]
-      .filter(isVisible)
-      .map((el) => ({ el, raw: visibleText(el) }))
-      .filter((item) => item.raw && item.raw.length < 150000)
-      .sort((a, b) => a.raw.length - b.raw.length);
+  const nodes = [...document.querySelectorAll(selector)]
+    .filter(isVisible)
+    .map((el) => ({ el, raw: visibleText(el) }))
+    .filter((item) => item.raw && item.raw.length < 150000)
+    .sort((a, b) => a.raw.length - b.raw.length);
 
-    for (const { el, raw } of nodes) {
-      const attributeLabels = [
-        el.getAttribute("aria-label"),
-        el.getAttribute("data-label")
-      ].filter(Boolean);
+  for (const { el, raw } of nodes) {
+    const attributeLabels = [
+      el.getAttribute("aria-label"),
+      el.getAttribute("data-label")
+    ].filter(Boolean);
 
-      if (
-        attributeLabels.some((label) => aliases.has(normLabel(label)))
-      ) {
-        const value = candidateValue(el, aliases);
-        if (value) return value;
-      }
-
-      if (aliases.has(normLabel(raw))) {
-        const value = valueAfterLabel(el, aliases);
-        if (value) return value;
-      }
-
-      const inlineValue = stripLabelPrefix(raw, aliases);
-      if (inlineValue) return inlineValue;
+    if (attributeLabels.some((label) => aliases.has(normLabel(label)))) {
+      const value = candidateValue(el, aliases);
+      if (value) return value;
     }
 
+    if (aliases.has(normLabel(raw))) {
+      const value = valueAfterLabel(el, aliases);
+      if (value) return value;
+    }
+
+    const inlineValue = stripLabelPrefix(raw, aliases);
+    if (inlineValue) return inlineValue;
+  }
+
+  return "";
+}
+
+function currentCharacterId() {
+  const match = location.pathname.match(/\/character\/([^/]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function readName() {
+  const h1 = [...document.querySelectorAll("h1")]
+    .find((el) => isVisible(el) && visibleText(el));
+
+  const metaTitle =
+    document.querySelector('meta[property="og:title"]')?.content || "";
+
+  const raw = visibleText(h1) || metaTitle || document.title || "";
+
+  return raw
+    .replace(/^\s*chat\s+with\s+/i, "")
+    .replace(/\s*[|·—–-]\s*AI Character Chat on Emochi.*$/i, "")
+    .trim();
+}
+
+function absoluteHttpUrl(value) {
+  try {
+    const url = new URL(value, location.href);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
     return "";
   }
+}
+
+function readAvatarUrl(name) {
+  const metaImage =
+    document.querySelector('meta[property="og:image"]')?.content ||
+    document.querySelector('meta[name="twitter:image"]')?.content;
+
+  if (metaImage) return absoluteHttpUrl(metaImage);
+
+  const images = [...document.images].filter(isVisible);
+  const namedImage = images.find((img) =>
+    name &&
+    String(img.alt || "").toLowerCase().includes(name.toLowerCase())
+  );
+
+  const image =
+    namedImage ||
+    images.find((img) => img.naturalWidth >= 64 || img.width >= 64);
+
+  return absoluteHttpUrl(image?.currentSrc || image?.src || "");
+}
+
+function parseTags(raw) {
+  return [...new Set(
+    String(raw || "")
+      .split(/[,;\n•|]+/)
+      .map((tag) => tag.trim().replace(/^#/, ""))
+      .filter(Boolean)
+  )];
+} 
 
   function currentCharacterId() {
     const parts = location.pathname.split("/").filter(Boolean);
