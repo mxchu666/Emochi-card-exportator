@@ -10,6 +10,7 @@
     greeting: "Greeting",
     altGreetings: "Alternate greeting",
     exampleDialogue: "Example dialogue",
+    definition: "Definition",
   };
 
   function toBlocks(card) {
@@ -46,6 +47,7 @@
     pushField("personality", f.personality);
     pushField("scenario", f.scenario);
     pushField("exampleDialogue", f.exampleDialogue);
+    pushField("definition", f.definition);
 
     (card.lorebooks || []).forEach((book, bi) => {
       (Array.isArray(book.entries) ? book.entries : []).forEach((entry, ei) => {
@@ -75,6 +77,7 @@
       greeting: [],
       altGreetings: [],
       exampleDialogue: [],
+      definition: [],
     };
     const entries = [];
     for (const b of blocks) {
@@ -94,68 +97,67 @@
       greeting: fields.greeting.join("\n\n"),
       altGreetings: fields.altGreetings,
       exampleDialogue: fields.exampleDialogue.join("\n\n"),
+      definition: fields.definition.join("\n\n"),
+      sourceUrl: card.sourceUrl || "",
       entries,
     };
   }
 
-  function tavernCardV2(card, blocks, included) {
-    const c = rebuild(card, blocks, included);
-    const book =
-      c.entries.length > 0
-        ? {
-            name: c.name + " lorebook",
-            entries: c.entries.map((e, i) => ({
-              keys: e.keys || [],
-              content: e.content || "",
-              comment: e.comment || "",
-              enabled: true,
-              insertion_order: i,
-              constant: !!e.constant,
-              selective: e.selective !== false,
-              extensions: {},
-            })),
-          }
-        : undefined;
-    return {
-      spec: "chara_card_v2",
-      spec_version: "2.0",
-      data: {
-        name: c.name,
-        description: c.description,
-        personality: c.personality,
-        scenario: c.scenario,
-        first_mes: c.greeting,
-        mes_example: c.exampleDialogue,
-        creator_notes: "",
-        system_prompt: "",
-        post_history_instructions: "",
-        alternate_greetings: c.altGreetings || [],
-        tags: c.tags || [],
-        creator: c.creator || "",
-        character_version: "",
-        extensions: c.avatarUrl ? { avatar: c.avatarUrl } : {},
-        ...(book ? { character_book: book } : {}),
-      },
-    };
-  }
+ function tavernCardV2(card, blocks, included) {
+  const c = rebuild(card, blocks, included);
 
-  function worldInfoEntries(sourceEntries) {
-    const entries = {};
-    sourceEntries.forEach((entry, index) => {
-      entries[index] = {
-        uid: index,
-        key: entry.keys || [],
-        keysecondary: [],
-        comment: entry.comment || "",
-        content: entry.content || "",
-        constant: !!entry.constant,
-        selective: entry.selective !== false,
-        order: index,
-        disable: false,
-      };
-    });
-    return entries;
-  }
+  const combinedDescription = [
+    c.description,
+    c.definition ? "[Definition]\n" + c.definition : ""
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const book =
+    c.entries.length > 0
+      ? {
+          name: c.name + " lorebook",
+          entries: c.entries.map((e, i) => ({
+            keys: e.keys || [],
+            content: e.content || "",
+            comment: e.comment || "",
+            enabled: true,
+            insertion_order: i,
+            constant: !!e.constant,
+            selective: e.selective !== false,
+            extensions: {}
+          }))
+        }
+      : undefined;
+
+  return {
+    spec: "chara_card_v2",
+    spec_version: "2.0",
+    data: {
+      name: c.name,
+      description: combinedDescription,
+      personality: c.personality,
+      scenario: c.scenario,
+      first_mes: c.greeting,
+      mes_example: c.exampleDialogue,
+      creator_notes: "",
+      system_prompt: "",
+      post_history_instructions: "",
+      alternate_greetings: c.altGreetings || [],
+      tags: c.tags || [],
+      creator: c.creator || "",
+      character_version: "1.0",
+      extensions: {
+        emochi_card_exporter: {
+          definition: c.definition || "",
+          source_url: c.sourceUrl || "",
+          avatar_url: c.avatarUrl || ""
+        }
+      },
+      ...(book ? { character_book: book } : {})
+    }
+  };
+}
 
   function lorebookJson(card, blocks, included) {
     const c = rebuild(card, blocks, included);
