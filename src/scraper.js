@@ -223,32 +223,21 @@
     )];
   }
 
-  async function scanCharacter(opts = {}) {
-    if (typeof opts.onProgress === "function") {
-      opts.onProgress("Leyendo los datos visibles de la ficha...");
-    }
+ const hasCharacterData = [
+  fields.description,
+  fields.definition,
+  fields.personality,
+  fields.scenario,
+  fields.greeting,
+  fields.exampleDialogue
+].some((value) => typeof value === "string" && value.trim());
 
-    const name = readName();
-    const fields = {
-      description: readField("description"),
-      definition: readField("definition"),
-      personality: readField("personality"),
-      scenario: readField("scenario"),
-      greeting: readField("greeting"),
-      altGreetings: [],
-      exampleDialogue: readField("exampleDialogue")
-    };
-
-    const hasContent = Object.values(fields).some((value) =>
-      typeof value === "string" ? value.trim() : false
-    );
-
-    if (!name && !hasContent) {
-      const error = new Error("no-visible-card");
-      error.friendly =
-        "No encontré datos visibles de la ficha. Abre la página del personaje y comprueba que sus campos estén desplegados.";
-      throw error;
-    }
+if (!hasCharacterData) {
+  const error = new Error("no-visible-character-fields");
+  error.friendly =
+    "No encontré datos visibles de la ficha. Abre el panel de información del personaje o verifica que esos campos se muestren en esta página.";
+  throw error;
+  }
 
     return {
       id: currentCharacterId(),
