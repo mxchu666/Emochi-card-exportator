@@ -427,6 +427,19 @@
         ],
       ),
       el(
+  "button",
+  {
+    class: "jaix-btn jaix-btn--export",
+    type: "button",
+    onClick: () => exportAs("png")
+  },
+  [
+    icon("download"),
+    el("span", { text: "SillyTavern PNG" }),
+    el("span", { class: "jaix-export-format", text: ".png" })
+    ]
+      ),
+      el(
         "button",
         {
           class: "jaix-btn jaix-btn--export",
