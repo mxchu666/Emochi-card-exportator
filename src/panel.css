@@ -899,17 +899,3 @@
     transition: none;
   }
 }
-
-function download(filename, data, mime) {
-  const blob =
-    data instanceof Blob
-      ? data
-      : new Blob([data], { type: mime || "application/json" });
-
-  const url = URL.createObjectURL(blob);
-  const a = el("a", { href: url, download: filename });
-  root.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
