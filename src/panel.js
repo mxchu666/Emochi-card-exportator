@@ -70,16 +70,19 @@
       : path;
   }
 
-  function download(filename, text, mime) {
-    const blob = new Blob([text], { type: mime || "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = el("a", { href: url, download: filename });
-    root.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
+ function download(filename, data, mime) {
+  const blob =
+    data instanceof Blob
+      ? data
+      : new Blob([data], { type: mime || "application/json" });
 
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  root.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
   function json(obj) {
     return JSON.stringify(obj, null, 2);
   }
