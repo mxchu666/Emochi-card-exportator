@@ -256,8 +256,23 @@
     }
   }
 
-  function exportAs(kind) {
+  async function exportAs(kind) {
     const card = state.card;
+    if (kind === "png") {
+    try {
+    setStatus("Creando PNG...", "busy");
+    const blob = await exporters.tavernPngV2(
+      card,
+      state.blocks,
+      inc
+    );
+    download(base + ".png", blob, "image/png");
+    setStatus("PNG de SillyTavern descargado.", "ok");
+  } catch (error) {
+    setStatus(error.message || "No se pudo crear el PNG.", "err");
+    }
+    return;
+  }
     if (!card) return;
     const inc = state.included;
     const base = exporters.slug(card.name);
@@ -536,8 +551,8 @@
       {
         class: "jaix-fab",
         type: "button",
-        title: "Open Inkwell Card Extractor",
-        "aria-label": "Open Inkwell Card Extractor",
+        title: "Abrir exportador de Emochi",
+        "aria-label": "Abrir exportador de Emochi",
         "aria-controls": "jaix-panel",
         "aria-expanded": "false",
         onClick: togglePanel,
