@@ -308,14 +308,27 @@ function parseTags(raw) {
   const name = readName();
 
   const fields = {
-    description:
-    readField("description") || readEmochiDescription(name),
-    definition: readField("definition"),
-    personality: readField("personality"),
-    scenario: readField("scenario"),
-    greeting: readField("greeting"),
-    altGreetings: [],
-    exampleDialogue: readField("exampleDialogue")
+  description: readField("description") || readEmochiDescription(name),
+  definition: readField("definition"),
+  personality: readField("personality"),
+  scenario: readField("scenario"),
+  greeting: readField("greeting"),
+  altGreetings: [],
+  exampleDialogue: readField("exampleDialogue")
+  };
+
+return {
+  id: currentCharacterId(),
+  name: name || "Personaje de Emochi",
+  creator: readField("creator"),
+  avatarUrl: readAvatarUrl(name),
+  nsfw: false,
+  tags: parseTags(readField("tags")),
+  sourceUrl: location.href,
+  fields,
+  scriptRefs: [],
+  lorebooks: [],
+  failedLorebooks: 0
   };
 
   const hasCharacterData = [
