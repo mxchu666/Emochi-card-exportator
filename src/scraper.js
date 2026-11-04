@@ -5,6 +5,8 @@
 
   const LABELS = {
     description: [
+      "introduction",
+      "introducción",
       "description",
       "descripción",
       "descripcion",
@@ -146,7 +148,7 @@
   function readField(key) {
   const aliases = new Set((LABELS[key] || []).map(normLabel));
   const selector =
-    'label,dt,h1,h2,h3,h4,h5,legend,p,span,strong,b,div,button,[aria-label],[data-label]';
+  'label,dt,h1,h2,h3,h4,h5,legend,p,span,strong,b,div,section,article,button,[aria-label],[data-label]';
 
   const nodes = [...document.querySelectorAll(selector)]
     .filter(isVisible)
@@ -183,18 +185,30 @@ function currentCharacterId() {
 }
 
 function readName() {
-  const h1 = [...document.querySelectorAll("h1")]
-    .find((el) => isVisible(el) && visibleText(el));
+  function cleanTitle(value) {
+    return String(value || "")
+      .replace(/^\s*chat\s+with\s+/i, "")
+      .replace(
+        /\s*[|·—–-]\s*AI Character\s+(?:Profile|Chat)\s+on\s+Emochi.*$/i,
+        ""
+      )
+      .replace(/\s*[|·—–-]\s*Emochi.*$/i, "")
+      .trim();
+  }
+
+  const headings = [...document.querySelectorAll("h1")]
+    .filter(isVisible)
+    .map((el) => cleanTitle(visibleText(el)))
+    .filter(Boolean);
+
+  if (headings.length) {
+    return headings.sort((a, b) => a.length - b.length)[0];
+  }
 
   const metaTitle =
     document.querySelector('meta[property="og:title"]')?.content || "";
 
-  const raw = visibleText(h1) || metaTitle || document.title || "";
-
-  return raw
-    .replace(/^\s*chat\s+with\s+/i, "")
-    .replace(/\s*[|·—–-]\s*AI Character Chat on Emochi.*$/i, "")
-    .trim();
+  return cleanTitle(metaTitle || document.title);
 }
 
 function absoluteHttpUrl(value) {
@@ -235,6 +249,29 @@ function parseTags(raw) {
   )];
 } 
 
+  function readEmochiDescription(name) {
+  const root = document.querySelector("main") || document.body;
+  const ignoredHeading =
+    /^(personajes similares|similar characters|comentarios|comments?)$/i;
+
+  const candidates = [...root.querySelectorAll("h2,h3,p,[role='heading']")];
+
+  for (const el of candidates) {
+    if (!isVisible(el)) continue;
+
+    const value = visibleText(el).replace(/\s+/g, " ").trim();
+
+    if (value.length < 40) continue;
+    if (ignoredHeading.test(value)) continue;
+    if (/AI Character (?:Profile|Chat) on Emochi/i.test(value)) continue;
+    if (normLabel(value) === normLabel(name)) continue;
+
+    return value;
+  }
+
+  return "";
+}
+
  async function scanCharacter(opts = {}) {
   if (typeof opts.onProgress === "function") {
     opts.onProgress("Leyendo los datos visibles de la ficha...");
@@ -243,7 +280,8 @@ function parseTags(raw) {
   const name = readName();
 
   const fields = {
-    description: readField("description"),
+    description:
+    readField("description") || readEmochiDescription(name),
     definition: readField("definition"),
     personality: readField("personality"),
     scenario: readField("scenario"),
