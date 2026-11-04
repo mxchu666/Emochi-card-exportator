@@ -2,7 +2,7 @@
   "use strict";
 
   const NS = (window.JAIX = window.JAIX || {});
-  const { scraper, exporters } = NS;
+  const { exporters } = NS;
 
   let root = null;
   let launcher = null;
@@ -222,10 +222,12 @@
     syncBusy();
     setStatus(deep ? "Deep scanning..." : "Scanning...", "busy");
     try {
-      const card = await scraper.scanCharacter({
-        deep,
-        onProgress: (m) => setStatus(m, "busy"),
-      });
+      if (!NS.scraper || typeof NS.scraper.scanCharacter !== "function") {
+      throw new Error(
+      "No se cargó el lector. Comprueba src/scraper.js y revisa la consola."
+      );
+    }
+      const card = await NS.scraper.scanCharacter({
       state.card = card;
       state.blocks = exporters.toBlocks(card);
       state.included = new Set(state.blocks.map((b) => b.id));
