@@ -64,13 +64,14 @@ test("exampleDialogue turns role/content turns into {{char}}/{{user}} lines", ()
 
 test("mergeCreator fills the fields the published prompt hides", () => {
   const card = E.normalizePrompt({ title: "Aveline", description: "Court historian." });
-  E.mergeCreator(card, {
+  const filled = E.mergeCreator(card, {
     personality: "Quiet and precise.",
     scenario: "The archive after midnight.",
     characterExampleConversation: "{{char}}: Sit down.",
     characterBackground: "She has served three queens.",
     introduction: "",
   });
+  assert.equal(filled, true);
   assert.equal(card.fields.personality, "Quiet and precise.");
   assert.equal(card.fields.scenario, "The archive after midnight.");
   assert.equal(card.fields.exampleDialogue, "{{char}}: Sit down.");
@@ -78,6 +79,29 @@ test("mergeCreator fills the fields the published prompt hides", () => {
     card.fields.description,
     "Court historian.\n\nShe has served three queens.",
   );
+  assert.equal(E.mergeCreator(card, {}), false);
+});
+
+test("harvestDefinition digs the definition out of any response shape", () => {
+  const found = E.harvestDefinition(
+    {
+      prompt: {
+        id: "x",
+        prompt: {
+          personality: "Sharp tongue.",
+          scenario: "A rainy porch.",
+          exampleConversation: [{ role: "assistant", content: "You're late." }],
+          nested: { characterBackground: "Ran away at sixteen." },
+        },
+      },
+    },
+    {},
+  );
+  assert.equal(found.personality, "Sharp tongue.");
+  assert.equal(found.scenario, "A rainy porch.");
+  assert.equal(found.characterBackground, "Ran away at sixteen.");
+  assert.deepEqual(found.exampleConversation, [{ role: "assistant", content: "You're late." }]);
+  assert.deepEqual(E.harvestDefinition(null, {}), {});
 });
 
 test("normalizePrompt tolerates empty input", () => {

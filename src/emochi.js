@@ -30,20 +30,59 @@
     }
   }
 
+  // Service-worker round trip. Null means the worker is unavailable (extension
+  // reloaded, or running outside an extension), so the caller falls back.
+  function fetchViaBackground(url, headers) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      try {
+        if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) {
+          return finish(null);
+        }
+        chrome.runtime.sendMessage({ type: "jaix:fetch", url, headers }, (reply) => {
+          void chrome.runtime.lastError;
+          finish(reply || null);
+        });
+      } catch {
+        return finish(null);
+      }
+      setTimeout(() => finish(null), TIMEOUT_MS);
+    });
+  }
+
+  function httpError(status, detail) {
+    const err = new Error("HTTP " + (status || "network"));
+    err.status = status;
+    err.detail = detail || "";
+    return err;
+  }
+
   async function fetchJson(path, bearer) {
+    const url = API_BASE + path;
+    const headers = { Accept: "application/json" };
+    // An Authorization header makes the request preflighted, and the API sends no
+    // Access-Control-Allow-Headers - the browser drops it before it is ever sent.
+    // Authorized reads therefore originate in the service worker, where CORS does not apply.
+    if (bearer) headers.Authorization = "Bearer " + bearer;
+
+    const reply = await fetchViaBackground(url, headers);
+    if (reply) {
+      if (!reply.ok) throw httpError(reply.status, reply.text || reply.error);
+      return reply.body;
+    }
+    if (bearer) throw httpError(0, "no background worker");
+
+    // Anonymous reads are simple requests: no preflight, so they work inline.
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const headers = { Accept: "application/json" };
-    // Never send cookies here: the API answers with Access-Control-Allow-Origin "*",
-    // which the browser rejects on a credentialed request.
-    if (bearer) headers.Authorization = "Bearer " + bearer;
     try {
-      const res = await fetch(API_BASE + path, { headers, signal: ctrl.signal });
-      if (!res.ok) {
-        const err = new Error("HTTP " + res.status);
-        err.status = res.status;
-        throw err;
-      }
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      if (!res.ok) throw httpError(res.status, "");
       return await res.json();
     } finally {
       clearTimeout(timer);
@@ -111,17 +150,73 @@
     };
   }
 
-  // The published prompt hides personality/scenario; the creator route returns them but needs a login.
+  // The published prompt hides personality/scenario; the definition routes return
+  // them but need a login. Returns true when anything was actually filled in.
   function mergeCreator(card, owner) {
-    if (!owner || typeof owner !== "object") return;
+    if (!owner || typeof owner !== "object") return false;
+    let filled = false;
+
+    const introduction = s(owner.introduction);
     const background = s(owner.characterBackground);
-    const base = s(owner.introduction) || card.fields.description;
-    card.fields.description = [base, background].filter(Boolean).join("\n\n");
-    if (s(owner.personality)) card.fields.personality = s(owner.personality);
-    if (s(owner.scenario)) card.fields.scenario = s(owner.scenario);
-    if (s(owner.characterExampleConversation)) {
-      card.fields.exampleDialogue = s(owner.characterExampleConversation);
+    if (introduction || background) {
+      const base = introduction || s(card.fields.description);
+      const merged = [base, background].filter(Boolean).join("\n\n");
+      if (merged && merged !== card.fields.description) {
+        card.fields.description = merged;
+        filled = true;
+      }
     }
+
+    const personality = s(owner.personality);
+    if (personality && personality !== card.fields.personality) {
+      card.fields.personality = personality;
+      filled = true;
+    }
+
+    const scenario = s(owner.scenario);
+    if (scenario && scenario !== card.fields.scenario) {
+      card.fields.scenario = scenario;
+      filled = true;
+    }
+
+    const examples =
+      exampleDialogue(owner.exampleConversation) || s(owner.characterExampleConversation);
+    if (examples && examples !== card.fields.exampleDialogue) {
+      card.fields.exampleDialogue = examples;
+      filled = true;
+    }
+
+    return filled;
+  }
+
+  // Each definition route nests the same fields differently, so any object that
+  // carries a definition key is harvested rather than hard-coding one schema.
+  const DEFINITION_KEYS = {
+    personality: 1,
+    scenario: 1,
+    characterBackground: 1,
+    characterExampleConversation: 1,
+    introduction: 1,
+    exampleConversation: 1,
+  };
+
+  function harvestDefinition(node, out, depth) {
+    if (!node || typeof node !== "object" || (depth || 0) > 6) return out;
+    if (Array.isArray(node)) {
+      for (const item of node) harvestDefinition(item, out, (depth || 0) + 1);
+      return out;
+    }
+    for (const key of Object.keys(node)) {
+      const value = node[key];
+      if (!DEFINITION_KEYS[key]) {
+        harvestDefinition(value, out, (depth || 0) + 1);
+        continue;
+      }
+      if (out[key]) continue;
+      if (typeof value === "string" && value.trim()) out[key] = value.trim();
+      else if (Array.isArray(value) && value.length) out[key] = value;
+    }
+    return out;
   }
 
   function friendlyFor(e) {
@@ -155,16 +250,27 @@
       if (onProgress) onProgress("Fetching creator definition...");
       const bearer = await readBearer();
       if (bearer) {
-        try {
-          const owned = await fetchJson(
-            "/prompt/" + encodeURIComponent(card.id) + "/creator",
-            bearer,
-          );
-          mergeCreator(card, owned && owned.prompt);
-        } catch {
-          card.note =
-            "The creator definition is only readable for characters on your own account, so this is the public card.";
+        // Both known carriers of the definition; whichever answers first wins.
+        const routes = [
+          "/prompt/" + encodeURIComponent(card.id) + "/creator",
+          "/conversation/prompt-history-v2?promptId=" + encodeURIComponent(card.id),
+        ];
+        const failures = [];
+        let filled = false;
+        for (const route of routes) {
+          try {
+            const body = await fetchJson(route, bearer);
+            if (mergeCreator(card, harvestDefinition(body, {}))) {
+              filled = true;
+              break;
+            }
+            failures.push(route.split("?")[0] + " returned no definition");
+          } catch (error) {
+            const status = error.status ? "HTTP " + error.status : error.message;
+            failures.push(route.split("?")[0] + " " + status);
+          }
         }
+        if (!filled) card.note = "Public card only - " + failures.join("; ") + ".";
       } else {
         card.note = "Sign in to Emochi to pull the creator definition (personality, scenario, examples).";
       }
@@ -178,6 +284,7 @@
     scanCharacter,
     normalizePrompt,
     mergeCreator,
+    harvestDefinition,
     promptTagNames,
     exampleDialogue,
     hint: "Quick gets the public card. Deep adds the creator's full definition when you're signed in.",
