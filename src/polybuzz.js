@@ -336,27 +336,8 @@
   // Read-only: `getscenedetail` is what the edit page calls to populate its form.
   // Never creates a conversation, unlike `conversation/init`.
   async function fetchOwnerScene(id) {
-    const cuid = readCuid();
-    try {
-      const body = await postJson(
-        API_BASE + "/api/scene/getscenedetail",
-        // Both spellings ride in one body: the guest structs on this API use
-        // `secretSceneId` and `secretSceneID` interchangeably, and Go ignores the
-        // key the struct does not declare.
-        { secretSceneId: id, secretSceneID: id },
-        cuid ? { cuid } : {},
-      );
-      if (!body) return { status: "error", data: null };
-      const code = Number(body.errNo);
-      const message = s(body.errstr) || s(body.errMsg);
-      if (code === LOGIN_REQUIRED) return { status: "login", data: null };
-      if (code === NOT_EDITABLE) return { status: "not-owner", data: null, errNo: code, message };
-      if (code) return { status: "error", data: null, errNo: code, message };
-      const data = body.data && typeof body.data === "object" ? body.data : null;
-      return { status: data ? "ok" : "error", data };
-    } catch {
-      return { status: "error", data: null };
-    }
+    const result = await callPromptRoute(PROMPT_ROUTES[0], id);
+    return { status: result.status, data: result.data, errNo: result.errNo, message: result.message };
   }
 
   // The create form's field names, plus the detail record's aliases. A config
@@ -398,27 +379,68 @@
   }
 
   // `/api/conversation/getsceneconfig` is the chat config the app reads for a
-  // conversation. It is login-gated, and it is the one read-only endpoint besides
-  // `getscenedetail` that can carry the prompt fields. The web client never calls
-  // it, so its response shape is unverified - hence the deep collect and the
-  // merge by field name rather than by position.
-  async function fetchSceneConfig(id) {
+  // conversation, and `/api/conversation/init` is the bootstrap it runs when a
+  // chat is opened. Neither is owner-scoped: any signed-in chatter gets them for
+  // anyone's bot. That is the one signed-in surface left that can carry the prompt
+  // fields, so both are tried after the edit loader. The body is form-encoded -
+  // the bundle declares `requestBodyType: form` for both - and unverified, hence
+  // the deep collect and the merge by field name rather than by position.
+  const PROMPT_ROUTES = [
+    { key: "detail", label: "getscenedetail", path: "/api/scene/getscenedetail", form: false },
+    { key: "config", label: "getsceneconfig", path: "/api/conversation/getsceneconfig", form: true },
+    { key: "init", label: "init", path: "/api/conversation/init", form: true },
+  ];
+
+  async function callPromptRoute(route, id) {
     const cuid = readCuid();
+    const headers = cuid ? { cuid } : {};
+    const payload = { secretSceneId: id, secretSceneID: id };
+    const out = { route: route.label, status: "error", data: null, fields: {} };
     try {
-      const body = await postForm(
-        API_BASE + "/api/conversation/getsceneconfig",
-        { secretSceneId: id, secretSceneID: id },
-        cuid ? { cuid } : {},
-      );
-      if (!body) return { status: "error", fields: {} };
+      const body = route.form
+        ? await postForm(API_BASE + route.path, payload, headers)
+        : await postJson(API_BASE + route.path, payload, headers);
+      if (!body) return out;
       const code = Number(body.errNo);
       const message = s(body.errstr) || s(body.errMsg);
-      if (code === LOGIN_REQUIRED) return { status: "login", fields: {} };
-      if (code) return { status: "error", fields: {}, errNo: code, message };
-      return { status: "ok", fields: collectPromptFields(body.data) };
+      const data = body.data && typeof body.data === "object" ? body.data : null;
+      if (code === LOGIN_REQUIRED) return { ...out, status: "login", errNo: code, message };
+      if (code === NOT_EDITABLE) return { ...out, status: "not-owner", errNo: code, message };
+      if (code) return { ...out, errNo: code, message };
+      return { ...out, status: data ? "ok" : "error", data, fields: collectPromptFields(data) };
     } catch {
-      return { status: "error", fields: {} };
+      return out;
     }
+  }
+
+  async function fetchSceneConfig(id) {
+    return callPromptRoute(PROMPT_ROUTES[1], id);
+  }
+
+  // Every route is asked until one returns both prompt fields, so a card that
+  // Polybuzz does publish comes back in one try and a card it withholds costs
+  // three. The trace is what the note reports, so a screenshot of the panel names
+  // the endpoint and the code instead of guessing.
+  async function fetchPromptFields(id) {
+    const trace = [];
+    const fields = {};
+    let detail = null;
+    for (const route of PROMPT_ROUTES) {
+      const result = await callPromptRoute(route, id);
+      if (route.key === "detail") detail = result;
+      trace.push({
+        route: result.route,
+        status: result.status,
+        errNo: result.errNo,
+        message: result.message,
+        fields: Object.keys(result.fields),
+      });
+      for (const [key, value] of Object.entries(result.fields)) {
+        if (fields[key] === undefined) fields[key] = value;
+      }
+      if (fields.systemRole && fields.conversationExample) break;
+    }
+    return { detail, fields, trace };
   }
 
   // 1 = male is confirmed on every male bot sampled; 2/3 follow the site's
@@ -490,46 +512,62 @@
     if (!background && !examples) {
       // `getscenedetail` answers 210002 for a signed-in account that does not own
       // the bot and 120018 when nobody is signed in. Both are the server declining
-      // to serialize the prompt fields, so the note names the code instead of
-      // pretending the fields were never written.
-      const statuses = [owner, config].filter(Boolean);
-      const login = statuses.some((x) => x.status === "login");
-      const notOwner = statuses.find((x) => x.status === "not-owner");
-      const failed = statuses.find((x) => x.status === "error");
-      if (login) {
+      // to serialize the prompt fields, so the note names the code and every route
+      // that was asked instead of pretending the fields were never written.
+      const trace = (config && Array.isArray(config.trace) ? config.trace : []).filter(Boolean);
+      const names = trace.map((t) => t.route + (t.errNo ? " " + t.errNo : " " + t.status));
+      const detail = names.length ? " [" + names.join(", ") + "]" : "";
+      const status = s(owner && owner.status);
+      // A route that answered 200 outranks the edit loader's refusal: it proves
+      // the server walked the record and found nothing to serialize, which is a
+      // different fact from "you are not the owner".
+      const answered = trace.find((t) => t.status === "ok");
+      if (answered) {
+        notes.push(
+          "Polybuzz returned an empty background and empty dialogue examples for this character" +
+            detail +
+            ". Every signed-in route the app uses was asked; the card carries name, avatar, gender, intro, greeting and tags.",
+        );
+      } else if (status === "login") {
         notes.push(
           "Polybuzz answered the background lookup with code " +
             LOGIN_REQUIRED +
-            " (not signed in), so its background text and dialogue examples are missing from this card. " +
+            " (not signed in)" +
+            detail +
+            ", so its background text and dialogue examples are missing from this card. " +
             "Sign in to Polybuzz in this browser, reload the chat page and scan again.",
         );
-      } else if (notOwner) {
+      } else if (status === "not-owner") {
         const who = card.creator ? " (" + card.creator + ")" : "";
         notes.push(
           "Polybuzz answered the background lookup with code " +
             NOT_EDITABLE +
             ": this account does not own the character" +
             who +
-            ", and the server serializes its background text and dialogue examples only to the owner. " +
-            "The card carries every field Polybuzz publishes: name, avatar, gender, intro, greeting and tags.",
+            detail +
+            ". The card carries every field Polybuzz publishes: name, avatar, gender, intro, greeting and tags.",
         );
-      } else if (statuses.some((x) => x.status === "ok")) {
+      } else if (status === "ok") {
         notes.push(
-          "Polybuzz returned an empty background and empty dialogue examples for this character, " +
-            "so the card carries its name, avatar, gender, intro, greeting and tags only.",
+          "Polybuzz returned an empty background and empty dialogue examples for this character" +
+            detail +
+            ", so the card carries its name, avatar, gender, intro, greeting and tags only.",
         );
-      } else if (failed && failed.errNo) {
-        const detail = failed.message ? " - " + failed.message : "";
+      } else if (owner && owner.errNo) {
+        const errorDetail = owner.message ? " - " + owner.message : "";
         notes.push(
           "Polybuzz refused the background and dialogue lookups for this character (code " +
-            failed.errNo +
+            owner.errNo +
+            errorDetail +
+            ")" +
             detail +
-            "). Reload its chat page and scan again.",
+            ". Reload its chat page and scan again.",
         );
       } else {
         notes.push(
-          "Polybuzz didn't answer the background and dialogue lookups for this character. " +
-            "Scan again from its chat page.",
+          "Polybuzz didn't answer the background and dialogue lookups for this character" +
+            detail +
+            ". Scan again from its chat page.",
         );
       }
     }
@@ -577,18 +615,14 @@
       throw err;
     }
 
-    // Background and dialogue examples are blank on every guest payload. Both
-    // account endpoints are asked in order, because either one can answer first
-    // depending on how the server builds the response for this scene.
+    // Background and dialogue examples are blank on every guest payload. The
+    // signed-in routes are asked in order - edit loader, chat config, chat
+    // bootstrap - because the first is owner-only and the other two are not.
     if (onProgress) onProgress("Checking the background and dialogue fields...");
     const sceneId = s(scene && scene.secretSceneId) || sceneIdFromSlug(id);
-    const owner = await fetchOwnerScene(sceneId);
-    let config = null;
-    if (!s(owner && owner.data && owner.data.systemRole)) {
-      config = await fetchSceneConfig(sceneId);
-    }
+    const prompt = await fetchPromptFields(sceneId);
 
-    return normalizeScene(scene, profile, owner, config);
+    return normalizeScene(scene, profile, prompt.detail, { fields: prompt.fields, trace: prompt.trace });
   }
 
   NS.scraper = {
@@ -604,6 +638,8 @@
     fetchProfile,
     fetchOwnerScene,
     fetchSceneConfig,
+    fetchPromptFields,
+    callPromptRoute,
     collectPromptFields,
     postJson,
     postForm,

@@ -269,6 +269,64 @@ test("collectPromptFields skips blank strings so a later record can fill the fie
   assert.equal(fields.dialogueStyle, undefined);
 });
 
+test("fetchPromptFields stops at the first route that returns both prompt fields", async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response(
+      JSON.stringify({ errNo: 0, data: { systemRole: "Fondo.", conversationExample: "{{char}}: hola" } }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    const prompt = await P.fetchPromptFields("bHJrz");
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /\/api\/scene\/getscenedetail$/);
+    assert.equal(prompt.fields.systemRole, "Fondo.");
+    assert.equal(prompt.trace.length, 1);
+    assert.equal(prompt.trace[0].route, "getscenedetail");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("fetchPromptFields asks the two conversation routes when the owner route refuses", async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.endsWith("/api/scene/getscenedetail")) {
+      return new Response(JSON.stringify({ errNo: 210002, errstr: "No permission", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ errNo: 0, data: { scene: {} } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const prompt = await P.fetchPromptFields("bHJrz");
+    assert.deepEqual(
+      prompt.trace.map((t) => t.route + ":" + t.status),
+      ["getscenedetail:not-owner", "getsceneconfig:ok", "init:ok"],
+    );
+    assert.deepEqual(prompt.fields, {});
+    assert.equal(prompt.detail.status, "not-owner");
+    assert.equal(calls.length, 3);
+
+    const card = P.normalizeScene(SCENE, null, prompt.detail, { fields: prompt.fields, trace: prompt.trace });
+    assert.match(card.note, /210002/);
+    assert.match(card.note, /\[getscenedetail 210002, getsceneconfig ok, init ok\]/);
+    assert.match(card.note, /returned an empty background/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("fetchOwnerScene treats the site guard answer as an error, not as an empty scene", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () =>
