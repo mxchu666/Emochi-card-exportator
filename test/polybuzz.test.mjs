@@ -109,7 +109,7 @@ test("normalizeScene tells the reader to sign in when the account endpoint asks 
 
 test("normalizeScene reports an empty answer as empty, not as a failed read", () => {
   const card = P.normalizeScene(SCENE, null, { status: "ok", data: { systemRole: "" } });
-  assert.match(card.note, /returned no background text and no dialogue examples/);
+  assert.match(card.note, /returned an empty background/);
 });
 
 test("normalizeScene says how to retry when the background lookup never answered", () => {
@@ -187,7 +187,8 @@ test("fetchOwnerScene marks a scene the account does not own as not-owner, not a
     assert.equal(owner.errNo, 210002);
 
     const card = P.normalizeScene(SCENE, null, owner);
-    assert.match(card.note, /only serves the background text and the dialogue examples to the bot's creator \(Erica ★\)/);
+    assert.match(card.note, /code 210002/);
+    assert.match(card.note, /does not own the character \(Erica ★\)/);
     assert.doesNotMatch(card.note, /Reload/);
   } finally {
     globalThis.fetch = original;
@@ -229,6 +230,43 @@ test("prologueText and labelText flatten every shape the site uses", () => {
   assert.equal(P.labelText({ dialogue: [{ name: "A" }, "B"] }), "A, B");
   assert.equal(P.labelText([{ title: "C" }]), "C");
   assert.equal(P.labelText(undefined), "");
+});
+
+test("fetchSceneConfig posts a form body and reads the config tree by field name", async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(
+      JSON.stringify({
+        errNo: 0,
+        data: { scene: { systemRole: "Fondo real.", conversationExample: "{{char}}: hola" } },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    const config = await P.fetchSceneConfig("bHJrz");
+    assert.equal(config.status, "ok");
+    assert.equal(config.fields.systemRole, "Fondo real.");
+    assert.equal(config.fields.conversationExample, "{{char}}: hola");
+    assert.match(calls[0].url, /\/api\/conversation\/getsceneconfig$/);
+    assert.match(calls[0].init.headers["content-type"], /x-www-form-urlencoded/);
+    assert.equal(calls[0].init.body, "secretSceneId=bHJrz&secretSceneID=bHJrz");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("collectPromptFields skips blank strings so a later record can fill the field", () => {
+  const fields = P.collectPromptFields({
+    systemRole: "",
+    nested: [{ systemRole: "Fondo." }],
+    conversationExample: "{{char}}: hola",
+  });
+  assert.equal(fields.systemRole, "Fondo.");
+  assert.equal(fields.conversationExample, "{{char}}: hola");
+  assert.equal(fields.dialogueStyle, undefined);
 });
 
 test("fetchOwnerScene treats the site guard answer as an error, not as an empty scene", async () => {
