@@ -10,6 +10,7 @@
     greeting: "Greeting",
     altGreetings: "Alternate greeting",
     exampleDialogue: "Example dialogue",
+    gender: "Gender",
   };
 
   function toBlocks(card) {
@@ -42,6 +43,17 @@
         text: g,
       }),
     );
+    // No Tavern field holds a gender, so it rides at the top of the description
+    // with its own label - it can be toggled off like any other block.
+    if (card.gender) {
+      blocks.push({
+        id: "field:gender:0",
+        kind: "field",
+        field: "description",
+        label: FIELD_LABELS.gender,
+        text: "Gender: " + card.gender,
+      });
+    }
     pushField("description", f.description);
     pushField("personality", f.personality);
     pushField("scenario", f.scenario);
