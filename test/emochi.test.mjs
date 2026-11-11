@@ -112,6 +112,22 @@ test("normalizePrompt tolerates empty input", () => {
   assert.equal(card.fields.greeting, "");
 });
 
+test("readUserId pulls the id out of the site's local user store", () => {
+  const store = { "user-store": JSON.stringify({ state: { userId: "u_123" }, version: 0 }) };
+  const oldStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null) };
+  try {
+    assert.equal(E.readUserId(), "u_123");
+    globalThis.localStorage = { getItem: () => "not json" };
+    assert.equal(E.readUserId(), "");
+    globalThis.localStorage = { getItem: () => null };
+    assert.equal(E.readUserId(), "");
+  } finally {
+    if (oldStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = oldStorage;
+  }
+});
+
 test("currentCharacterId reads the slug out of an Emochi character URL", () => {
   const oldLocation = globalThis.location;
   globalThis.location = { pathname: "/es-ES/character/mrs-morgan-8793148e/chat" };

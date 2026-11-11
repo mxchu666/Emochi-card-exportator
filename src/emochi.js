@@ -32,6 +32,19 @@
 
   // Service-worker round trip. Null means the worker is unavailable (extension
   // reloaded, or running outside an extension), so the caller falls back.
+  // The app scopes user-scoped routes by this header; it lives in localStorage
+  // under the store the site itself writes.
+  function readUserId() {
+    try {
+      const raw = localStorage.getItem("user-store");
+      if (!raw) return "";
+      const parsed = JSON.parse(raw);
+      return s(parsed && parsed.state && parsed.state.userId);
+    } catch {
+      return "";
+    }
+  }
+
   function fetchViaBackground(url, headers) {
     return new Promise((resolve) => {
       let settled = false;
@@ -62,13 +75,17 @@
     return err;
   }
 
-  async function fetchJson(path, bearer) {
+  async function fetchJson(path, session) {
     const url = API_BASE + path;
+    const bearer = session && session.bearer;
     const headers = { Accept: "application/json" };
     // An Authorization header makes the request preflighted, and the API sends no
     // Access-Control-Allow-Headers - the browser drops it before it is ever sent.
     // Authorized reads therefore originate in the service worker, where CORS does not apply.
-    if (bearer) headers.Authorization = "Bearer " + bearer;
+    if (bearer) {
+      headers.Authorization = "Bearer " + bearer;
+      if (session.userId) headers["x-flow-userid"] = session.userId;
+    }
 
     const reply = await fetchViaBackground(url, headers);
     if (reply) {
@@ -250,19 +267,21 @@
       if (onProgress) onProgress("Fetching creator definition...");
       const bearer = await readBearer();
       if (bearer) {
-        // Read-only routes known to carry (or snapshot) the definition. The first
-        // one that yields usable fields wins, so a refused route costs one request.
+        const session = { bearer, userId: readUserId() };
+        // Read-only routes that can carry the definition. The first one that yields
+        // usable fields wins, so a refused route costs one request.
         const id = encodeURIComponent(card.id);
         const routes = [
+          { path: "/prompt/" + id },
           { path: "/prompt/" + id + "/creator" },
-          { path: "/conversation/latest?promptId=" + id, marker: card.id },
           { path: "/conversation/prompt-history-v2?promptId=" + id },
+          { path: "/conversation/latest?promptId=" + id, marker: card.id },
         ];
         const failures = [];
         let filled = false;
         for (const route of routes) {
           try {
-            const body = await fetchJson(route.path, bearer);
+            const body = await fetchJson(route.path, session);
             // A conversation is only about this character when it names it.
             if (route.marker && !JSON.stringify(body).includes(route.marker)) {
               failures.push(route.path.split("?")[0] + " has no snapshot");
@@ -275,7 +294,10 @@
             failures.push(route.path.split("?")[0] + " returned no definition");
           } catch (error) {
             const status = error.status ? "HTTP " + error.status : error.message;
-            failures.push(route.path.split("?")[0] + " " + status);
+            // The server's own words are the only way to tell a bad token from a
+            // refusal, so they ride along in the note.
+            const detail = s(error.detail).slice(0, 90);
+            failures.push(route.path.split("?")[0] + " " + status + (detail ? " (" + detail + ")" : ""));
           }
         }
         if (!filled) card.note = "Public card only - " + failures.join("; ") + ".";
@@ -289,6 +311,7 @@
   NS.scraper = {
     currentCharacterId,
     readBearer,
+    readUserId,
     scanCharacter,
     normalizePrompt,
     mergeCreator,
