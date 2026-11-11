@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JAI Card Extractor",
+  "name": "Card Extractor - JanitorAI + Emochi",
   "version": "0.3.0",
-  "description": "Extract a character card from JanitorAI or Emochi and export it to SillyTavern JSON (also read by Tavo), a lorebook (World Info) JSON, JanitorAI JSON, or plain text. Runs entirely in your browser using your own session - nothing is sent to any server.",
+  "description": "Extract a character card from JanitorAI or Emochi and export it to SillyTavern JSON or PNG (both read by Tavo), a lorebook (World Info) JSON, JanitorAI JSON, or plain text. Runs entirely in your browser using your own session - nothing is sent to any server.",
   "icons": {
     "128": "assets/inkwell-mark.png"
   },

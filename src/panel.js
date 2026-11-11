@@ -2,7 +2,7 @@
   "use strict";
 
   const NS = (window.JAIX = window.JAIX || {});
-  const { scraper, exporters } = NS;
+  const { exporters } = NS;
 
   let root = null;
   let launcher = null;
@@ -70,16 +70,19 @@
       : path;
   }
 
-  function download(filename, text, mime) {
-    const blob = new Blob([text], { type: mime || "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = el("a", { href: url, download: filename });
-    root.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
+ function download(filename, data, mime) {
+  const blob =
+    data instanceof Blob
+      ? data
+      : new Blob([data], { type: mime || "application/json" });
 
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  root.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
   function json(obj) {
     return JSON.stringify(obj, null, 2);
   }
@@ -128,7 +131,7 @@
           el("div", { class: "jaix-cardname", text: card.name }),
           el("div", {
             class: "jaix-cardmeta",
-            text: card.sourceLabel || "JanitorAI card",
+            text: card.sourceLabel || "Character card",
           }),
         ]),
         el("div", { class: "jaix-counts" }, [
@@ -213,23 +216,39 @@
     renderResult();
   }
 
-  async function scan(deep) {
+    async function scan(deep) {
     if (state.busy) return;
+
     state.busy = true;
     syncBusy();
     setStatus(deep ? "Deep scanning..." : "Scanning...", "busy");
+
     try {
-      const card = await scraper.scanCharacter({
-        deep,
-        onProgress: (m) => setStatus(m, "busy"),
+      if (!NS.scraper || typeof NS.scraper.scanCharacter !== "function") {
+        throw new Error("The site reader did not load. Reload the page.");
+      }
+
+      if (!exporters || typeof exporters.toBlocks !== "function") {
+        throw new Error("The exporter did not load. Reload the page.");
+      }
+
+      const card = await NS.scraper.scanCharacter({
+        deep: Boolean(deep),
+        onProgress: (message) => setStatus(message, "busy")
       });
+
+      if (!card || typeof card !== "object") {
+        throw new Error("The site reader returned nothing usable.");
+      }
+
       state.card = card;
       state.blocks = exporters.toBlocks(card);
-      state.included = new Set(state.blocks.map((b) => b.id));
-      if (!deep && card.scriptRefs.length) {
-        const label = card.scriptRefs.length === 1 ? "lorebook" : "lorebooks";
+      state.included = new Set(state.blocks.map((block) => block.id));
+      const refs = card.scriptRefs || [];
+      if (!deep && refs.length) {
+        const label = refs.length === 1 ? "lorebook" : "lorebooks";
         state.note =
-          card.scriptRefs.length + " " + label + " found. Run Deep scan to include the entries.";
+          refs.length + " " + label + " found. Run Deep scan to include the entries.";
       } else if (deep && card.failedLorebooks) {
         const label = card.failedLorebooks === 1 ? "lorebook" : "lorebooks";
         state.note =
@@ -239,13 +258,15 @@
       }
       setStatus("", null);
       if (ui) renderResult();
-    } catch (e) {
+    } catch (error) {
       state.card = null;
       state.blocks = [];
       state.included = new Set();
       state.note = "";
+
       if (ui) renderResult();
-      const message = e && (e.friendly || e.message);
+
+      const message = error && (error.friendly || error.message);
       setStatus(message || "Scan failed.", "err");
     } finally {
       state.busy = false;
@@ -253,11 +274,22 @@
     }
   }
 
-  function exportAs(kind) {
+  async function exportAs(kind) {
     const card = state.card;
     if (!card) return;
     const inc = state.included;
     const base = exporters.slug(card.name);
+    if (kind === "png") {
+      try {
+        setStatus("Building PNG...", "busy");
+        const blob = await exporters.tavernPngV2(card, state.blocks, inc);
+        download(base + ".png", blob, "image/png");
+        setStatus("SillyTavern PNG saved.", "ok");
+      } catch (error) {
+        setStatus(error.message || "Couldn't build the PNG.", "err");
+      }
+      return;
+    }
     if (kind === "tavern") {
       download(base + ".card.json", json(exporters.tavernCardV2(card, state.blocks, inc)));
     } else if (kind === "lorebook") {
@@ -409,6 +441,19 @@
         ],
       ),
       el(
+  "button",
+  {
+    class: "jaix-btn jaix-btn--export",
+    type: "button",
+    onClick: () => exportAs("png")
+  },
+  [
+    icon("download"),
+    el("span", { text: "SillyTavern PNG" }),
+    el("span", { class: "jaix-export-format", text: ".png" })
+    ]
+      ),
+      el(
         "button",
         {
           class: "jaix-btn jaix-btn--export",
@@ -533,8 +578,8 @@
       {
         class: "jaix-fab",
         type: "button",
-        title: "Open Inkwell Card Extractor",
-        "aria-label": "Open Inkwell Card Extractor",
+        title: "Abrir exportador de Emochi",
+        "aria-label": "Abrir exportador de Emochi",
         "aria-controls": "jaix-panel",
         "aria-expanded": "false",
         onClick: togglePanel,

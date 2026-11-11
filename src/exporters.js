@@ -260,10 +260,142 @@
     return [...normalized].slice(0, 60).join("") || "character";
   }
 
+  // SillyTavern, Tavo and friends read a PNG card out of a "chara" tEXt chunk.
+  function bytesToBase64(bytes) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) {
+        crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      }
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  function pngChunk(type, payload) {
+    const chunk = new Uint8Array(payload.length + 12);
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, payload.length);
+    chunk.set(new TextEncoder().encode(type), 4);
+    chunk.set(payload, 8);
+    view.setUint32(chunk.length - 4, crc32(chunk.subarray(4, chunk.length - 4)));
+    return chunk;
+  }
+
+  async function avatarPngBytes(name, avatarUrl) {
+    const size = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Couldn't create the PNG canvas.");
+
+    function placeholder() {
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, "#303a54");
+      gradient.addColorStop(1, "#8a6a91");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      const initials = String(name || "?")
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => [...part][0] || "")
+        .join("")
+        .toUpperCase();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 140px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(initials || "?", size / 2, size / 2);
+    }
+
+    const encode = () =>
+      new Promise((resolve, reject) => {
+        try {
+          canvas.toBlob(resolve, "image/png");
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+    placeholder();
+    if (avatarUrl) {
+      try {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.referrerPolicy = "no-referrer";
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("avatar timeout")), 5000);
+          image.onload = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          image.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error("avatar failed"));
+          };
+          image.src = avatarUrl;
+        });
+        ctx.clearRect(0, 0, size, size);
+        const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+        ctx.drawImage(
+          image,
+          (size - image.naturalWidth * scale) / 2,
+          (size - image.naturalHeight * scale) / 2,
+          image.naturalWidth * scale,
+          image.naturalHeight * scale,
+        );
+      } catch {
+        // A CDN that refuses the cross-origin read leaves the initials tile in place.
+        ctx.clearRect(0, 0, size, size);
+        placeholder();
+      }
+    }
+
+    let blob;
+    try {
+      blob = await encode();
+    } catch {
+      // Tainted canvas: drop the avatar and encode the flat tile instead.
+      ctx.clearRect(0, 0, size, size);
+      placeholder();
+      blob = await encode();
+    }
+    if (!blob) throw new Error("Couldn't build the PNG.");
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  async function tavernPngV2(card, blocks, included) {
+    const cardData = tavernCardV2(card, blocks, included);
+    const png = await avatarPngBytes(card.name, card.avatarUrl);
+    if (String.fromCharCode(...png.subarray(12, 16)) !== "IHDR") {
+      throw new Error("The generated image is not a PNG.");
+    }
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    const insertAt = 8 + 12 + view.getUint32(8);
+    const encoded = bytesToBase64(new TextEncoder().encode(JSON.stringify(cardData)));
+    const metadata = pngChunk("tEXt", new TextEncoder().encode("chara\0" + encoded));
+    const out = new Uint8Array(png.length + metadata.length);
+    out.set(png.subarray(0, insertAt), 0);
+    out.set(metadata, insertAt);
+    out.set(png.subarray(insertAt), insertAt + metadata.length);
+    return new Blob([out], { type: "image/png" });
+  }
+
   NS.exporters = {
     toBlocks,
     rebuild,
     tavernCardV2,
+    tavernPngV2,
     lorebookJson,
     lorebooksSeparate,
     janitorJson,

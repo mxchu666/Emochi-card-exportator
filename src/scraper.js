@@ -228,6 +228,7 @@
         .map((x) => ({ id: x.id, title: s(x.title), description: clean(x.description) })),
       lorebooks: [],
       failedLorebooks: 0,
+      sourceLabel: "JanitorAI card",
     };
   }
 
