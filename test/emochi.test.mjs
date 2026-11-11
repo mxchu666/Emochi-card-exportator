@@ -149,6 +149,61 @@ test("describeFailures separates a refused session from a creator-only definitio
   assert.match(sparse, /public fields/);
 });
 
+test("parseSystemPrompt splits the compiled Emochi definition into card fields", () => {
+  const parsed = E.parseSystemPrompt(
+    '"[]\nHunter Triton\'s name: Hunter Triton.\n' +
+      "Hunter Triton calls {{user}} by {{user}} or any name introduced by {{user}}.\n" +
+      "Hunter Triton's personality: Cold, ruthless, short temper.\n" +
+      "Hunter Triton's background: Olympic gold, seven brothers.\n" +
+      "scenario of role-play: The university gym after hours.\n" +
+      "Example conversations between Hunter Triton and {{user}}: <START>\n" +
+      "{{char}}: Move.\n" +
+      "Do not write as {{user}} or assume {{user}}'s reaction or response.",
+  );
+  assert.equal(parsed.name, "Hunter Triton");
+  assert.equal(parsed.personality, "Cold, ruthless, short temper.");
+  assert.equal(parsed.characterBackground, "Olympic gold, seven brothers.");
+  assert.equal(parsed.scenario, "The university gym after hours.");
+  assert.match(parsed.characterExampleConversation, /\{\{char\}\}: Move\./);
+  assert.doesNotMatch(parsed.characterExampleConversation, /Do not write as/);
+  assert.doesNotMatch(parsed.personality, /calls \{\{user\}\}/);
+});
+
+test("parseSystemPrompt handles one-line prompts, empty sections and plain prompts", () => {
+  const oneLine = E.parseSystemPrompt(
+    "Sophia's name: Sophia.Sophia calls {{user}} by {{user}}.Sophia's personality: Sweet and possessive.",
+  );
+  assert.equal(oneLine.name, "Sophia");
+  assert.equal(oneLine.personality, "Sweet and possessive.");
+  assert.equal(oneLine.scenario, undefined);
+
+  const lone = E.parseSystemPrompt("Killian's name: K.Killian's personality: Sharp.\nKillian's background: .");
+  assert.equal(lone.personality, "Sharp.");
+  assert.equal(lone.characterBackground, undefined);
+
+  const plain = E.parseSystemPrompt("You will roleplay as BeastGPT, a coding model.");
+  assert.equal(plain.personality, "You will roleplay as BeastGPT, a coding model.");
+  assert.equal(plain.scenario, undefined);
+  assert.equal(E.parseSystemPrompt(""), null);
+  assert.equal(E.parseSystemPrompt(null), null);
+});
+
+test("normalizePrompt fills personality and scenario from the published initPrompt", () => {
+  const card = E.normalizePrompt({
+    title: "Killian Chester",
+    description: "A rich heir.",
+    welcomeMessage: "Hey.",
+    initPrompt:
+      "Killian's name: Killian.\nKillian's personality: Arrogant, protective.\n" +
+      "Killian's background: Inherited the estate at nineteen.\n" +
+      "scenario of role-play: The estate library.",
+  });
+  assert.equal(card.fields.personality, "Arrogant, protective.");
+  assert.equal(card.fields.scenario, "The estate library.");
+  assert.equal(card.fields.description, "A rich heir.\n\nInherited the estate at nineteen.");
+  assert.equal(card.fields.greeting, "Hey.");
+});
+
 test("currentCharacterId reads the slug out of an Emochi character URL", () => {
   const oldLocation = globalThis.location;
   globalThis.location = { pathname: "/es-ES/character/mrs-morgan-8793148e/chat" };

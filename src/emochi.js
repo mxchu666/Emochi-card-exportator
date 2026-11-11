@@ -140,10 +140,68 @@
       .join("\n\n");
   }
 
+  // Emochi compiles each character's definition into one system prompt and
+  // publishes it on listed characters (`initPrompt`). The shape is stable:
+  //   <Name>'s name: <Name>.
+  //   <Name> calls {{user}} by {{user}} or any name introduced by {{user}}.
+  //   <Name>'s personality: ...
+  //   <Name>'s background: ...
+  //   scenario of role-play: ...
+  //   Example conversations between <Name> and {{user}}: ...
+  //   Do not write as {{user}} or assume {{user}}'s reaction or response.
+  // Sections are optional and may sit on one line, so markers are located by
+  // index rather than by splitting lines.
+  const SECTION_MARKERS = [
+    ["personality", /'s personality:/i],
+    ["characterBackground", /'s background:/i],
+    ["scenario", /scenario of role-play:/i],
+    ["characterExampleConversation", /example conversations? between/i],
+  ];
+
+  function parseSystemPrompt(raw) {
+    const text = s(raw);
+    if (!text) return null;
+    const body = text
+      .replace(/^\s*["']?\[\]\s*["']?/, "")
+      .split(/do not write as \{\{user\}\}/i)[0]
+      .trim();
+    if (!body) return null;
+
+    const marks = SECTION_MARKERS.map(([key, re]) => {
+      const hit = re.exec(body);
+      return hit ? { key, start: hit.index, end: hit.index + hit[0].length } : null;
+    })
+      .filter(Boolean)
+      .sort((a, b) => a.start - b.start);
+
+    const out = {};
+    const nameHit = /([^:\n]{1,60}?)'s name:/i.exec(body);
+    if (nameHit) out.name = nameHit[1].trim();
+    // A section runs up to the next marker, which leaves the next section's
+    // "<Name>'s" prefix glued to the end of this one.
+    const nameTail = out.name
+      ? new RegExp("\\s*" + out.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$", "i")
+      : null;
+
+    // A prompt with no section markers is a plain system prompt, not a card.
+    if (!marks.length) {
+      out.personality = body;
+      return out;
+    }
+    for (let i = 0; i < marks.length; i += 1) {
+      const stop = i + 1 < marks.length ? marks[i + 1].start : body.length;
+      let part = body.slice(marks[i].end, stop).trim();
+      if (nameTail) part = part.replace(nameTail, "").trim();
+      part = part.replace(/^\.\s*/, "").replace(/\s+\.$/, "");
+      if (part.length > 1) out[marks[i].key] = part;
+    }
+    return out;
+  }
+
   function normalizePrompt(prompt) {
     const p = prompt && typeof prompt === "object" ? prompt : {};
     const user = p.User && typeof p.User === "object" ? p.User : {};
-    return {
+    const card = {
       id: s(p.id) || s(p.uri),
       name: s(p.title) || "Imported character",
       creator: s(user.name) || s(user.uri),
@@ -165,6 +223,9 @@
       failedLorebooks: 0,
       sourceLabel: "Emochi card",
     };
+    const compiled = parseSystemPrompt(p.initPrompt);
+    if (compiled) mergeCreator(card, compiled);
+    return card;
   }
 
   // The published prompt hides personality/scenario; the definition routes return
@@ -215,6 +276,7 @@
     characterExampleConversation: 1,
     introduction: 1,
     exampleConversation: 1,
+    initPrompt: 1,
   };
 
   // `exampleConversation` also rides on the public payload, so it cannot prove a
@@ -225,6 +287,7 @@
     "characterBackground",
     "characterExampleConversation",
     "introduction",
+    "initPrompt",
   ];
 
   function harvestDefinition(node, out, depth) {
@@ -341,6 +404,8 @@
               continue;
             }
             mergeCreator(card, found);
+            const compiled = parseSystemPrompt(found.initPrompt);
+            if (compiled) mergeCreator(card, compiled);
             filled = true;
             break;
           } catch (error) {
@@ -367,9 +432,10 @@
     normalizePrompt,
     mergeCreator,
     harvestDefinition,
+    parseSystemPrompt,
     describeFailures,
     promptTagNames,
     exampleDialogue,
-    hint: "Quick gets the public card. Deep adds the creator's full definition when you're signed in.",
+    hint: "Quick exports every field Emochi publishes, including the compiled personality and scenario when the character has them. Deep adds the creator's own definition when you're signed in.",
   };
 })();
