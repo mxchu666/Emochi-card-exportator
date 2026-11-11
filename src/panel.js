@@ -128,7 +128,7 @@
           el("div", { class: "jaix-cardname", text: card.name }),
           el("div", {
             class: "jaix-cardmeta",
-            text: "JanitorAI card",
+            text: card.sourceLabel || "JanitorAI card",
           }),
         ]),
         el("div", { class: "jaix-counts" }, [
@@ -235,7 +235,7 @@
         state.note =
           card.failedLorebooks + " " + label + " could not be read. Try the Deep scan again.";
       } else {
-        state.note = "";
+        state.note = card.note || "";
       }
       setStatus("", null);
       if (ui) renderResult();
@@ -370,7 +370,7 @@
       }),
       el("p", {
         class: "jaix-hint",
-        text: "Quick gets the card. Deep also gets every linked lorebook.",
+        text: scraper.hint || "Quick gets the card. Deep also gets every linked lorebook.",
       }),
       el("div", { class: "jaix-scanrow" }, [quickButton, deepButton]),
       status,
