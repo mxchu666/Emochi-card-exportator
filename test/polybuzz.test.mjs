@@ -128,6 +128,70 @@ test("normalizeScene flags a card that arrived without its greeting", () => {
   assert.match(card.note, /didn't hand over this character's greeting/);
 });
 
+test("fetchOwnerScene calls the page-context endpoint with cookies and reports a sign-in gate", async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(
+      JSON.stringify({ errNo: 120018, errMsg: "User Needs to login again", data: {} }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    const owner = await P.fetchOwnerScene("bHJrz");
+    assert.equal(owner.status, "login");
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/api\/scene\/getscenedetail$/);
+    assert.equal(calls[0].init.method, "POST");
+    // Page context, not the worker: c6-api answers 5002 without a Referer, and a
+    // service worker cannot send one.
+    assert.equal(calls[0].init.credentials, "include");
+    assert.equal(JSON.parse(calls[0].init.body).secretSceneId, "bHJrz");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("fetchOwnerScene returns the account payload when the server allows it", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ errNo: 0, data: { systemRole: "Fondo.", conversationExample: "{{char}}: hola" } }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  try {
+    const owner = await P.fetchOwnerScene("bHJrz");
+    assert.equal(owner.status, "ok");
+    assert.equal(owner.data.systemRole, "Fondo.");
+
+    const card = P.normalizeScene(SCENE, null, owner);
+    assert.equal(card.fields.personality, "Fondo.");
+    assert.equal(card.fields.exampleDialogue, "{{char}}: hola");
+    assert.equal(card.note, undefined);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("fetchOwnerScene treats the site guard answer as an error, not as an empty scene", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ errNo: 5002, errMsg: "system busy now", data: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const owner = await P.fetchOwnerScene("bHJrz");
+    assert.equal(owner.status, "error");
+    assert.equal(owner.errNo, 5002);
+    const card = P.normalizeScene(SCENE, null, owner);
+    assert.match(card.note, /code 5002/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 // The #__NUXT_DATA__ script tag holds the payload as a devalue flat array. A
 // summary card and the full scene share the id there, and only the full one has
 // the greeting, so the richer match must win.

@@ -142,11 +142,12 @@
   }
 
   // --- transport ----------------------------------------------------------
-  // Both the page HTML and the JSON API go through the extension service
-  // worker. A content-script request inherits the page's origin, so the API's
-  // `cuid` header turns it into a preflighted cross-origin request that can die
-  // before it is sent; the worker is not subject to CORS and already holds the
-  // host permissions. Inline fetches stay as a fallback for older copies.
+  // c6-api drops any request that does not carry a Referer on the polybuzz host:
+  // with that header it answers the real status (120018 when signed out), without
+  // it every call returns 5002 "system busy now" - including /api/scene/profile,
+  // which is why the background lookup failed while the page payload still read
+  // fine. A service worker cannot set Referer (it is a forbidden header), so the
+  // page context goes first and the worker is only the fallback.
   function fromBackground(message) {
     return new Promise((resolve) => {
       if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) {
@@ -174,19 +175,35 @@
   }
 
   async function fetchJson(url, headers) {
+    try {
+      const res = await inlineFetch(url, { credentials: "include", headers: headers || {} });
+      if (res.ok) return await res.json();
+    } catch {
+      // No Referer, no answer - fall through to the worker, which at least
+      // reaches the host if the page context is blocked.
+    }
     const reply = await fromBackground({ type: "jaix:fetch", url, headers });
     if (reply && reply.ok && reply.body) return reply.body;
-    const res = await inlineFetch(url, { credentials: "omit", headers: headers || {} });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
+    throw new Error("Polybuzz API request failed");
   }
 
   // POST with the signed-in cookies. Polybuzz authenticates with `withCredentials`
   // on the site side and has no Authorization header, so the only credential the
-  // account endpoint needs is the cookie jar the service worker can reach.
+  // account endpoint needs is the cookie jar.
   async function postJson(url, payload, headers) {
     const body = JSON.stringify(payload);
     const allHeaders = { "content-type": "application/json", ...(headers || {}) };
+    try {
+      const res = await inlineFetch(url, {
+        method: "POST",
+        body,
+        headers: allHeaders,
+        credentials: "include",
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      // Same fallback as fetchJson.
+    }
     const reply = await fromBackground({
       type: "jaix:fetch",
       url,
@@ -195,15 +212,8 @@
       credentials: "include",
       headers: allHeaders,
     });
-    if (reply && reply.ok) return reply.body;
-    const res = await inlineFetch(url, {
-      method: "POST",
-      body,
-      headers: allHeaders,
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
+    if (reply && reply.ok && reply.body) return reply.body;
+    throw new Error("Polybuzz API request failed");
   }
 
   async function backgroundHtml(url) {
@@ -362,6 +372,11 @@
         notes.push(
           "Polybuzz returned no background text and no dialogue examples for this character, " +
             "so the card carries its name, avatar, gender, intro, greeting and tags only.",
+        );
+      } else if (owner && owner.errNo) {
+        notes.push(
+          "Polybuzz refused the background and dialogue lookups for this character " +
+            "(code " + owner.errNo + "). Reload its chat page and scan again.",
         );
       } else {
         notes.push(
