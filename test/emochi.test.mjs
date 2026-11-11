@@ -204,6 +204,23 @@ test("normalizePrompt fills personality and scenario from the published initProm
   assert.equal(card.fields.greeting, "Hey.");
 });
 
+test("findCompiled pulls the compiled prompt out of a conversation payload", () => {
+  const body = {
+    conversationId: "abc",
+    messages: [
+      { role: "system", content: "Sadie's name: Sadie.\nSadie's personality: Dry, sharp." },
+      { role: "user", content: "hi" },
+      { role: "system", content: "too short" },
+    ],
+  };
+  assert.equal(
+    E.findCompiled(body, "", 0),
+    "Sadie's name: Sadie.\nSadie's personality: Dry, sharp.",
+  );
+  assert.equal(E.findCompiled({ a: ["plain text"] }, "", 0), "");
+  assert.equal(E.findCompiled("scenario of role-play: A gym.", "", 0), "scenario of role-play: A gym.");
+});
+
 test("currentCharacterId reads the slug out of an Emochi character URL", () => {
   const oldLocation = globalThis.location;
   globalThis.location = { pathname: "/es-ES/character/mrs-morgan-8793148e/chat" };

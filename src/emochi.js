@@ -309,6 +309,22 @@
     return out;
   }
 
+  // Conversation routes answer with prompt strings rather than a prompt object:
+  // the text the server would hand the model for this character. It uses the same
+  // section grammar as `initPrompt`, so the longest match is parsed the same way.
+  const COMPILED_HINT = /'s personality:|scenario of role-play:/i;
+
+  function findCompiled(node, best, depth) {
+    if (typeof node === "string") return COMPILED_HINT.test(node) && node.length > best.length ? node : best;
+    if (!node || typeof node !== "object" || (depth || 0) > 6) return best;
+    if (Array.isArray(node)) {
+      for (const item of node) best = findCompiled(item, best, (depth || 0) + 1);
+      return best;
+    }
+    for (const key of Object.keys(node)) best = findCompiled(node[key], best, (depth || 0) + 1);
+    return best;
+  }
+
   function serverMessage(detail) {
     const text = s(detail);
     if (!text) return "";
@@ -341,7 +357,8 @@
     if (creatorRefused && answered.length) {
       return (
         "Emochi keeps personality, scenario and example dialogue private to the " +
-        "character's creator. Everything it publishes is in this card."
+        "character's creator. Send this bot one message, then deep scan again — " +
+        "Emochi keeps the compiled prompt with the conversation."
       );
     }
     if (refused.length === failures.length && refused.length) {
@@ -385,6 +402,8 @@
           { label: "detail", path: "/prompt/" + promptId },
           { label: "creator", path: "/prompt/" + promptId + "/creator" },
           { label: "latest", path: "/conversation/latest?promptId=" + promptId, marker: card.id },
+          { label: "history", path: "/conversation/prompt-history-v2?promptId=" + promptId, marker: card.id },
+          { label: "history", path: "/conversation/prompt-history?promptId=" + promptId, marker: card.id },
         ];
         const failures = [];
         let filled = false;
@@ -399,12 +418,13 @@
             // The public payload echoes `exampleConversation`, so only the
             // definition-only keys prove a route actually carried the definition.
             const found = harvestDefinition(body, {});
-            if (!DEFINITION_ONLY.some((key) => found[key])) {
+            // Conversation routes carry the compiled prompt as text instead.
+            const compiled = parseSystemPrompt(found.initPrompt) || parseSystemPrompt(findCompiled(body, "", 0));
+            if (!DEFINITION_ONLY.some((key) => found[key]) && !(compiled && compiled.personality)) {
               failures.push({ label: route.label, answered: true, reason: "no definition" });
               continue;
             }
             mergeCreator(card, found);
-            const compiled = parseSystemPrompt(found.initPrompt);
             if (compiled) mergeCreator(card, compiled);
             filled = true;
             break;
@@ -433,6 +453,7 @@
     mergeCreator,
     harvestDefinition,
     parseSystemPrompt,
+    findCompiled,
     describeFailures,
     promptTagNames,
     exampleDialogue,
