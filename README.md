@@ -79,11 +79,15 @@ node --test
 
 Emochi is a Next.js app on FlowGPT's backend. The useful bits:
 
-- `GET https://emochi-backend-k8s.flowgpt.com/prompt/<uri-or-id>` — public character. The `uri` is the whole URL slug, e.g. `mrs-morgan-8793148e`, so no lookup step is needed. Answers with `Access-Control-Allow-Origin: *` and needs no cookies, which is why the extension can call it straight from the page with no extra permissions.
-- `GET https://emochi-backend-k8s.flowgpt.com/prompt/<id>/creator` — the creator view, which is the only place `personality`, `scenario`, `characterExampleConversation` and `characterBackground` live. Needs `Authorization: Bearer <token>` and returns 401 unless the character is on your account.
+- `GET https://emochi-backend-k8s.flowgpt.com/prompt/<uri-or-id>` — public character. The `uri` is the whole URL slug, e.g. `mrs-morgan-8793148e`, so no lookup step is needed. Answers with `Access-Control-Allow-Origin: *` and needs no cookies, which is why an anonymous read can go straight from the page.
+- `GET .../prompt/<id>/creator` — the creator view, which is the only place `personality`, `scenario`, `characterExampleConversation` and `characterBackground` live. Needs `Authorization: Bearer <token>`.
+- `GET .../conversation/latest?promptId=<id>` and `.../conversation/prompt-history-v2?promptId=<id>` — conversation reads that can carry a snapshot of the same definition. Used as fallbacks when the creator route refuses.
 - The bearer comes from `GET /api/auth/refresh` on emochi.com (same origin, uses the httpOnly cookie the site sets): `{ authenticated: true, encodedToken: "..." }`. Signed out it answers `{ authenticated: false }`.
 
-Gotcha: never send `credentials: "include"` to the API host. The wildcard `Access-Control-Allow-Origin` is rejected on credentialed requests and the fetch fails even though the server answered 200.
+Gotcha 1: never send `credentials: "include"` to the API host. The wildcard `Access-Control-Allow-Origin` is rejected on credentialed requests and the fetch fails even though the server answered 200.
+
+Gotcha 2, the important one: the API sends **no `Access-Control-Allow-Headers`**, so any page-context request that carries `Authorization` dies at the CORS preflight before it leaves the browser. Authenticated reads therefore go through `background.js` (the extension service worker), which is not subject to CORS and can use `host_permissions` to reach the API directly. That is why the manifest asks for `https://emochi-backend-k8s.flowgpt.com/*`.
+
 
 ## License
 

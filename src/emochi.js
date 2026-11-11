@@ -250,24 +250,32 @@
       if (onProgress) onProgress("Fetching creator definition...");
       const bearer = await readBearer();
       if (bearer) {
-        // Both known carriers of the definition; whichever answers first wins.
+        // Read-only routes known to carry (or snapshot) the definition. The first
+        // one that yields usable fields wins, so a refused route costs one request.
+        const id = encodeURIComponent(card.id);
         const routes = [
-          "/prompt/" + encodeURIComponent(card.id) + "/creator",
-          "/conversation/prompt-history-v2?promptId=" + encodeURIComponent(card.id),
+          { path: "/prompt/" + id + "/creator" },
+          { path: "/conversation/latest?promptId=" + id, marker: card.id },
+          { path: "/conversation/prompt-history-v2?promptId=" + id },
         ];
         const failures = [];
         let filled = false;
         for (const route of routes) {
           try {
-            const body = await fetchJson(route, bearer);
+            const body = await fetchJson(route.path, bearer);
+            // A conversation is only about this character when it names it.
+            if (route.marker && !JSON.stringify(body).includes(route.marker)) {
+              failures.push(route.path.split("?")[0] + " has no snapshot");
+              continue;
+            }
             if (mergeCreator(card, harvestDefinition(body, {}))) {
               filled = true;
               break;
             }
-            failures.push(route.split("?")[0] + " returned no definition");
+            failures.push(route.path.split("?")[0] + " returned no definition");
           } catch (error) {
             const status = error.status ? "HTTP " + error.status : error.message;
-            failures.push(route.split("?")[0] + " " + status);
+            failures.push(route.path.split("?")[0] + " " + status);
           }
         }
         if (!filled) card.note = "Public card only - " + failures.join("; ") + ".";
