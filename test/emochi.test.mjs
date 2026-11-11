@@ -128,6 +128,27 @@ test("readUserId pulls the id out of the site's local user store", () => {
   }
 });
 
+test("describeFailures separates a refused session from a creator-only definition", () => {
+  const refused = E.describeFailures([
+    { label: "detail", status: 200, answered: true },
+    { label: "creator", status: 401, reason: '{"data":"Invalid Authorization: invalid token"}' },
+    { label: "latest", answered: true, reason: "no definition" },
+  ]);
+  assert.match(refused, /private to the character's creator/);
+
+  const dead = E.describeFailures([
+    { label: "detail", status: 401, reason: '{"data":"authorization header is required"}' },
+    { label: "creator", status: 401, reason: '{"data":"authorization header is required"}' },
+  ]);
+  assert.match(dead, /refused the request \(authorization header is required\)/);
+
+  const sparse = E.describeFailures([
+    { label: "detail", answered: true, reason: "no definition" },
+    { label: "creator", answered: true, reason: "no definition" },
+  ]);
+  assert.match(sparse, /public fields/);
+});
+
 test("currentCharacterId reads the slug out of an Emochi character URL", () => {
   const oldLocation = globalThis.location;
   globalThis.location = { pathname: "/es-ES/character/mrs-morgan-8793148e/chat" };

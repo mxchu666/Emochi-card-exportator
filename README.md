@@ -80,8 +80,9 @@ node --test
 Emochi is a Next.js app on FlowGPT's backend. The useful bits:
 
 - `GET https://emochi-backend-k8s.flowgpt.com/prompt/<uri-or-id>` — public character. The `uri` is the whole URL slug, e.g. `mrs-morgan-8793148e`, so no lookup step is needed. Answers with `Access-Control-Allow-Origin: *` and needs no cookies, which is why an anonymous read can go straight from the page.
-- `GET .../prompt/<id>/creator` — the creator view, which is the only place `personality`, `scenario`, `characterExampleConversation` and `characterBackground` live. Needs `Authorization: Bearer <token>`.
-- `GET .../conversation/latest?promptId=<id>` and `.../conversation/prompt-history-v2?promptId=<id>` — conversation reads that can carry a snapshot of the same definition. Used as fallbacks when the creator route refuses.
+- `GET .../prompt/<id>/creator` — the creator view, which is the only place `personality`, `scenario`, `characterExampleConversation` and `characterBackground` live. Needs `Authorization: Bearer <token>` **and** answers `401` for characters that are not on the signed-in account, so public characters made by other people only ever expose their published fields.
+- `GET .../conversation/latest?promptId=<id>` and `.../conversation/prompt-history-v2?promptId=<id>` — conversation reads. Probed with a real session: they answer `200` but carry messages, not the definition, so they are not a way in.
+- `GET .../user/<uri>/prompts` — public profile listing; answers `{total,prompts}`, no definitions.
 - The bearer comes from `GET /api/auth/refresh` on emochi.com (same origin, uses the httpOnly cookie the site sets): `{ authenticated: true, encodedToken: "..." }`. Signed out it answers `{ authenticated: false }`.
 
 Gotcha 1: never send `credentials: "include"` to the API host. The wildcard `Access-Control-Allow-Origin` is rejected on credentialed requests and the fetch fails even though the server answered 200.

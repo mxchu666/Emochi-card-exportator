@@ -30,8 +30,6 @@
     }
   }
 
-  // Service-worker round trip. Null means the worker is unavailable (extension
-  // reloaded, or running outside an extension), so the caller falls back.
   // The app scopes user-scoped routes by this header; it lives in localStorage
   // under the store the site itself writes.
   function readUserId() {
@@ -45,6 +43,8 @@
     }
   }
 
+  // Service-worker round trip. Null means the worker is unavailable (extension
+  // reloaded, or running outside an extension), so the caller falls back.
   function fetchViaBackground(url, headers) {
     return new Promise((resolve) => {
       let settled = false;
@@ -217,6 +217,16 @@
     exampleConversation: 1,
   };
 
+  // `exampleConversation` also rides on the public payload, so it cannot prove a
+  // route reached the definition; these can.
+  const DEFINITION_ONLY = [
+    "personality",
+    "scenario",
+    "characterBackground",
+    "characterExampleConversation",
+    "introduction",
+  ];
+
   function harvestDefinition(node, out, depth) {
     if (!node || typeof node !== "object" || (depth || 0) > 6) return out;
     if (Array.isArray(node)) {
@@ -236,12 +246,49 @@
     return out;
   }
 
+  function serverMessage(detail) {
+    const text = s(detail);
+    if (!text) return "";
+    try {
+      const parsed = JSON.parse(text);
+      const inner = (parsed && (parsed.data || parsed.message)) || "";
+      if (typeof inner === "string") return inner.slice(0, 80);
+    } catch {
+      /* plain text body */
+    }
+    return text.slice(0, 80);
+  }
+
   function friendlyFor(e) {
     if (e.status === 404) return "That character couldn't be found (it may be private or deleted).";
     if (e.status === 401 || e.status === 403) {
       return "Emochi rejected the request. Make sure you're signed in and can view this character, then reload the page.";
     }
     return "Couldn't reach Emochi just now. Reload the page and try again.";
+  }
+
+  // Turns the per-route trail into one line a person can act on. Three outcomes
+  // are worth telling apart: the session is refused, the definition is the
+  // creator's own, or the character simply publishes little.
+  function describeFailures(failures) {
+    const refused = failures.filter((f) => f.status === 401 || f.status === 403);
+    const answered = failures.filter((f) => f.answered);
+    const creatorRefused = refused.some((f) => f.label === "creator");
+
+    if (creatorRefused && answered.length) {
+      return (
+        "Emochi keeps personality, scenario and example dialogue private to the " +
+        "character's creator. Everything it publishes is in this card."
+      );
+    }
+    if (refused.length === failures.length && refused.length) {
+      const reason = serverMessage(refused[0].reason);
+      return (
+        "Emochi refused the request" + (reason ? " (" + reason + ")" : "") +
+        ". Reload the page while signed in, then deep scan again."
+      );
+    }
+    return "Emochi publishes no definition for this character, so the card carries its public fields.";
   }
 
   async function scanCharacter(opts = {}) {
@@ -269,13 +316,12 @@
       if (bearer) {
         const session = { bearer, userId: readUserId() };
         // Read-only routes that can carry the definition. The first one that yields
-        // usable fields wins, so a refused route costs one request.
-        const id = encodeURIComponent(card.id);
+        // usable fields wins, so a refusal costs one request.
+        const promptId = encodeURIComponent(card.id);
         const routes = [
-          { path: "/prompt/" + id },
-          { path: "/prompt/" + id + "/creator" },
-          { path: "/conversation/prompt-history-v2?promptId=" + id },
-          { path: "/conversation/latest?promptId=" + id, marker: card.id },
+          { label: "detail", path: "/prompt/" + promptId },
+          { label: "creator", path: "/prompt/" + promptId + "/creator" },
+          { label: "latest", path: "/conversation/latest?promptId=" + promptId, marker: card.id },
         ];
         const failures = [];
         let filled = false;
@@ -284,23 +330,28 @@
             const body = await fetchJson(route.path, session);
             // A conversation is only about this character when it names it.
             if (route.marker && !JSON.stringify(body).includes(route.marker)) {
-              failures.push(route.path.split("?")[0] + " has no snapshot");
+              failures.push({ label: route.label, answered: true, reason: "no snapshot" });
               continue;
             }
-            if (mergeCreator(card, harvestDefinition(body, {}))) {
-              filled = true;
-              break;
+            // The public payload echoes `exampleConversation`, so only the
+            // definition-only keys prove a route actually carried the definition.
+            const found = harvestDefinition(body, {});
+            if (!DEFINITION_ONLY.some((key) => found[key])) {
+              failures.push({ label: route.label, answered: true, reason: "no definition" });
+              continue;
             }
-            failures.push(route.path.split("?")[0] + " returned no definition");
+            mergeCreator(card, found);
+            filled = true;
+            break;
           } catch (error) {
-            const status = error.status ? "HTTP " + error.status : error.message;
-            // The server's own words are the only way to tell a bad token from a
-            // refusal, so they ride along in the note.
-            const detail = s(error.detail).slice(0, 90);
-            failures.push(route.path.split("?")[0] + " " + status + (detail ? " (" + detail + ")" : ""));
+            failures.push({
+              label: route.label,
+              status: error.status || 0,
+              reason: serverMessage(error.detail) || error.message,
+            });
           }
         }
-        if (!filled) card.note = "Public card only - " + failures.join("; ") + ".";
+        if (!filled) card.note = describeFailures(failures);
       } else {
         card.note = "Sign in to Emochi to pull the creator definition (personality, scenario, examples).";
       }
@@ -316,6 +367,7 @@
     normalizePrompt,
     mergeCreator,
     harvestDefinition,
+    describeFailures,
     promptTagNames,
     exampleDialogue,
     hint: "Quick gets the public card. Deep adds the creator's full definition when you're signed in.",
