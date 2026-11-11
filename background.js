@@ -36,7 +36,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ok: response.ok,
         status: response.status,
         body,
-        text: body ? "" : clipped.slice(0, 400),
+        // Full text, not a preview: Polybuzz's reader parses the server-rendered
+        // HTML that comes back here. MAX_BODY still caps it at 2 MB.
+        text: body ? "" : clipped,
       });
     })
     .catch((error) => {

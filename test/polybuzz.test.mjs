@@ -89,6 +89,59 @@ test("normalizeScene says what Polybuzz keeps private instead of leaving a thin 
   assert.match(card.note, /background text and dialogue-style examples/);
 });
 
+test("normalizeScene flags a card that arrived without its greeting", () => {
+  const card = P.normalizeScene(null, {
+    secretSceneId: "bLgrZ",
+    sceneName: "Bangchan",
+    sceneBrief: "Aw, babe.",
+    sceneGender: 1,
+  });
+  assert.equal(card.fields.greeting, "");
+  assert.match(card.note, /didn't hand over this character's greeting/);
+});
+
+// The #__NUXT_DATA__ script tag holds the payload as a devalue flat array. A
+// summary card and the full scene share the id there, and only the full one has
+// the greeting, so the richer match must win.
+const FLAT_PAYLOAD = [
+  ["ShallowReactive", 1],
+  { data: 2 },
+  { $summary: 3, $scene: 7 },
+  { secretSceneId: 4, sceneName: 5, sceneBrief: 6 },
+  "bLgrZ",
+  "Bangchan",
+  "Aw, babe",
+  {
+    secretSceneId: 8,
+    sceneName: 9,
+    sceneBrief: 10,
+    speechText: 11,
+    sceneGender: 12,
+    createUserName: 13,
+  },
+  "bLgrZ",
+  "Bangchan",
+  "Aw, babe",
+  "*Bangchan es tu esposo*",
+  2,
+  "Erica",
+];
+
+test("parsePayload expands the devalue payload and picks the full scene", () => {
+  const scene = P.parsePayload(JSON.stringify(FLAT_PAYLOAD), "blgrz");
+  assert.ok(scene, "scene not found");
+  assert.equal(scene.sceneName, "Bangchan");
+  assert.equal(scene.speechText, "*Bangchan es tu esposo*");
+  assert.equal(scene.sceneGender, 2);
+  assert.equal(scene.createUserName, "Erica");
+});
+
+test("parsePayload ignores junk instead of throwing", () => {
+  assert.equal(P.parsePayload("", "bLgrZ"), null);
+  assert.equal(P.parsePayload("{not json", "bLgrZ"), null);
+  assert.equal(P.parsePayload(JSON.stringify(FLAT_PAYLOAD), "other"), null);
+});
+
 test("decodeGender maps Polybuzz's gender ids", () => {
   assert.equal(P.decodeGender(1), "Male");
   assert.equal(P.decodeGender(2), "Female");
@@ -97,7 +150,7 @@ test("decodeGender maps Polybuzz's gender ids", () => {
   assert.equal(P.decodeGender("1"), "Male");
 });
 
-test("normalizeScene reads the scene out of a Nuxt payload for the current page only", () => {
+test("readSsrScene matches the URL slug against the bare scene id", () => {
   win.__NUXT__ = {
     data: {
       $a: { data: { settings: { chat: {} } } },
@@ -107,9 +160,16 @@ test("normalizeScene reads the scene out of a Nuxt payload for the current page 
   };
   try {
     assert.equal(P.readSsrScene("blgrz").sceneName, "Bangchan");
+    assert.equal(P.readSsrScene("bangchan-bLgrZ").sceneName, "Bangchan");
     assert.equal(P.readSsrScene("bsBT5").sceneName, "Dante Alfa");
     assert.equal(P.readSsrScene("nope"), null);
   } finally {
     delete win.__NUXT__;
   }
+});
+
+test("sceneIdFromSlug keeps the trailing scene id the API expects", () => {
+  assert.equal(P.sceneIdFromSlug("bangchan-bLgrZ"), "bLgrZ");
+  assert.equal(P.sceneIdFromSlug("ghost-sulking-ex-bL2Zu"), "bL2Zu");
+  assert.equal(P.sceneIdFromSlug("brMv6"), "brMv6");
 });
