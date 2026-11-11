@@ -221,6 +221,25 @@ test("findCompiled pulls the compiled prompt out of a conversation payload", () 
   assert.equal(E.findCompiled("scenario of role-play: A gym.", "", 0), "scenario of role-play: A gym.");
 });
 
+test("normalizePrompt names the sections the published definition leaves empty", () => {
+  const card = E.normalizePrompt({
+    title: "Hermione",
+    description: "Lover, husband, spouse.",
+    welcomeMessage: "Hi.",
+    initPrompt: "Hermione's name: Hermione.\nHermione's personality: Bright and curious.",
+  });
+  assert.equal(card.fields.personality, "Bright and curious.");
+  assert.match(card.note, /left scenario and example dialogue empty/);
+
+  const full = E.normalizePrompt({
+    title: "Hunter",
+    initPrompt:
+      "Hunter's name: Hunter.\nHunter's personality: Cold.\n" +
+      "scenario of role-play: The gym.\nExample conversations between Hunter and {{user}}: {{char}}: Move.",
+  });
+  assert.equal(full.note, undefined);
+});
+
 test("currentCharacterId reads the slug out of an Emochi character URL", () => {
   const oldLocation = globalThis.location;
   globalThis.location = { pathname: "/es-ES/character/mrs-morgan-8793148e/chat" };

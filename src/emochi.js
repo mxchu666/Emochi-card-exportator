@@ -224,7 +224,24 @@
       sourceLabel: "Emochi card",
     };
     const compiled = parseSystemPrompt(p.initPrompt);
-    if (compiled) mergeCreator(card, compiled);
+    if (compiled) {
+      mergeCreator(card, compiled);
+      // The compiled prompt only carries the sections the creator filled in, so a
+      // thin card is the creator's blank field, not a failed read.
+      const blank = [
+        ["personality", "personality"],
+        ["scenario", "scenario"],
+        ["exampleDialogue", "example dialogue"],
+      ]
+        .filter(([key]) => !card.fields[key])
+        .map(([, label]) => label);
+      if (blank.length) {
+        card.note =
+          "Emochi publishes this character's definition, but the creator left " +
+          (blank.length === 1 ? blank[0] : blank.slice(0, -1).join(", ") + " and " + blank[blank.length - 1]) +
+          " empty.";
+      }
+    }
     return card;
   }
 
