@@ -84,9 +84,37 @@ test("normalizeScene carries the background and setting when the payload publish
   assert.equal(card.note, undefined);
 });
 
-test("normalizeScene says what Polybuzz keeps private instead of leaving a thin card bare", () => {
-  const card = P.normalizeScene(SCENE, null);
-  assert.match(card.note, /background text and dialogue-style examples/);
+test("normalizeScene uses the account payload for background, examples and style", () => {
+  const card = P.normalizeScene(SCENE, null, {
+    status: "ok",
+    data: {
+      systemRole: "Creció en Busan y odia las despedidas.",
+      conversationExample: "{{char}}: No me mires así.\n{{user}}: ¿Por qué?",
+      dialogueStyle: "Descriptivo, frases cortas",
+    },
+  });
+
+  assert.equal(
+    card.fields.personality,
+    "Creció en Busan y odia las despedidas.\n\nDialogue style: Descriptivo, frases cortas",
+  );
+  assert.equal(card.fields.exampleDialogue, "{{char}}: No me mires así.\n{{user}}: ¿Por qué?");
+  assert.equal(card.note, undefined);
+});
+
+test("normalizeScene tells the reader to sign in when the account endpoint asks for it", () => {
+  const card = P.normalizeScene(SCENE, null, { status: "login", data: null });
+  assert.match(card.note, /Sign in to Polybuzz/);
+});
+
+test("normalizeScene reports an empty answer as empty, not as a failed read", () => {
+  const card = P.normalizeScene(SCENE, null, { status: "ok", data: { systemRole: "" } });
+  assert.match(card.note, /returned no background text and no dialogue examples/);
+});
+
+test("normalizeScene says how to retry when the background lookup never answered", () => {
+  const card = P.normalizeScene(SCENE, null, { status: "error", data: null });
+  assert.match(card.note, /didn't answer the background and dialogue lookups/);
 });
 
 test("normalizeScene flags a card that arrived without its greeting", () => {

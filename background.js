@@ -5,24 +5,35 @@
 // Authorization header dies at the CORS preflight before it is ever sent.
 // Extension-service-worker requests are not subject to CORS, so authorized
 // reads have to originate here.
+//
+// Polybuzz needs the same worker for the opposite reason: its account-only
+// endpoint authenticates with cookies, and a credentialed cross-origin fetch
+// from the page is refused. Here `credentials: "include"` plus the manifest's
+// host permission sends the signed-in cookies.
 
 const TIMEOUT_MS = 20000;
 const MAX_BODY = 2 * 1024 * 1024;
+const METHODS = new Set(["GET", "POST"]);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.type !== "jaix:fetch" || typeof message.url !== "string") {
     return false;
   }
 
+  const method = METHODS.has(String(message.method || "").toUpperCase())
+    ? String(message.method).toUpperCase()
+    : "GET";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  fetch(message.url, {
-    method: "GET",
+  const init = {
+    method,
     headers: message.headers || {},
     signal: controller.signal,
-    credentials: "omit",
-  })
+    credentials: message.credentials === "include" ? "include" : "omit",
+  };
+  if (method === "POST" && typeof message.body === "string") init.body = message.body;
+
+  fetch(message.url, init)
     .then(async (response) => {
       const text = await response.text();
       const clipped = text.length > MAX_BODY ? text.slice(0, MAX_BODY) : text;

@@ -181,6 +181,31 @@
     return res.json();
   }
 
+  // POST with the signed-in cookies. Polybuzz authenticates with `withCredentials`
+  // on the site side and has no Authorization header, so the only credential the
+  // account endpoint needs is the cookie jar the service worker can reach.
+  async function postJson(url, payload, headers) {
+    const body = JSON.stringify(payload);
+    const allHeaders = { "content-type": "application/json", ...(headers || {}) };
+    const reply = await fromBackground({
+      type: "jaix:fetch",
+      url,
+      method: "POST",
+      body,
+      credentials: "include",
+      headers: allHeaders,
+    });
+    if (reply && reply.ok) return reply.body;
+    const res = await inlineFetch(url, {
+      method: "POST",
+      body,
+      headers: allHeaders,
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
   async function backgroundHtml(url) {
     const reply = await fromBackground({
       type: "jaix:fetch",
@@ -241,7 +266,35 @@
 
   // Polybuzz's own creation guide names the fields a character has: name, gender,
   // short introduction, greeting, tags, background introduction and dialogue
-  // style. The public payload only carries the first five plus the profile row.
+  // style. The create/edit page is the only bundle that mentions the last two, and
+  // it sends them as `systemRole`, `conversationExample` and `dialogueStyle`.
+  // Every guest surface ships `systemRole` and `templateIntro` present but empty,
+  // so the account endpoint the edit page loads is the one place left to ask.
+  const LOGIN_REQUIRED = 120018;
+
+  // Read-only: `getscenedetail` is what the edit page calls to populate its form.
+  // Never creates a conversation, unlike `conversation/init`.
+  async function fetchOwnerScene(id) {
+    const cuid = readCuid();
+    try {
+      const body = await postJson(
+        API_BASE + "/api/scene/getscenedetail",
+        // Both spellings ride in one body: the guest structs on this API use
+        // `secretSceneId` and `secretSceneID` interchangeably, and Go ignores the
+        // key the struct does not declare.
+        { secretSceneId: id, secretSceneID: id },
+        cuid ? { cuid } : {},
+      );
+      if (!body) return { status: "error", data: null };
+      if (Number(body.errNo) === LOGIN_REQUIRED) return { status: "login", data: null };
+      if (body.errNo) return { status: "error", data: null, errNo: Number(body.errNo) };
+      const data = body.data && typeof body.data === "object" ? body.data : null;
+      return { status: data ? "ok" : "error", data };
+    } catch {
+      return { status: "error", data: null };
+    }
+  }
+
   // 1 = male is confirmed on every male bot sampled; 2/3 follow the site's
   // "Masculino / Femenino / No binario" tab order.
   const GENDERS = { 1: "Male", 2: "Female", 3: "Non-binary" };
@@ -255,30 +308,36 @@
     return v.map((t) => s(typeof t === "string" ? t : t && (t.tagName || t.name))).filter(Boolean);
   }
 
-  function normalizeScene(scene, profile) {
+  function normalizeScene(scene, profile, owner) {
     const a = scene && typeof scene === "object" ? scene : {};
     const p = profile && typeof profile === "object" ? profile : {};
+    const o = owner && owner.data && typeof owner.data === "object" ? owner.data : {};
     const id = s(a.secretSceneId) || s(p.secretSceneId) || currentCharacterId() || "";
     const name = s(a.sceneName) || s(p.sceneName) || s(a.oriSceneName) || s(p.oriSceneName);
 
-    const background = s(a.systemRole);
-    const setting = s(a.templateIntro);
+    // `systemRole` is the background introduction, `conversationExample` the
+    // dialogue examples and `dialogueStyle` the style label. Guest payloads blank
+    // the first two, so whatever the account endpoint returned fills the gap.
+    const background = s(o.systemRole) || s(a.systemRole) || s(p.systemRole);
+    const setting = s(a.templateIntro) || s(o.templateIntro);
+    const examples = s(o.conversationExample) || s(a.conversationExample);
+    const style = s(o.dialogueStyle) || s(a.dialogueStyle);
 
     const card = {
       id,
       name: name || "Imported character",
-      creator: s(a.createUserName) || s(p.createUserName),
+      creator: s(a.createUserName) || s(p.createUserName) || s(o.createUserName),
       avatarUrl: s(a.sceneAvatarUrl) || s(p.sceneAvatarUrl) || s(a.homeCoverUrl) || s(p.homeCoverUrl),
       gender: decodeGender(a.sceneGender !== undefined ? a.sceneGender : p.sceneGender),
       nsfw: false,
       tags: [...new Set([...tagNames(a.sceneTags), ...tagNames(p.sceneTags)])],
       fields: {
-        description: s(a.sceneBrief) || s(p.sceneBrief),
-        personality: background,
+        description: s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief),
+        personality: [background, style ? "Dialogue style: " + style : ""].filter(Boolean).join("\n\n"),
         scenario: setting,
         greeting: s(a.speechText),
         altGreetings: [],
-        exampleDialogue: "",
+        exampleDialogue: examples,
       },
       scriptRefs: [],
       lorebooks: [],
@@ -286,20 +345,32 @@
       sourceLabel: "Polybuzz card",
     };
 
-    // Polybuzz keeps the background text and the dialogue-style examples inside
-    // the creator's editor. When the payload carries neither, say so rather than
-    // letting a thin card look like a failed read.
-    if (!background && !setting) {
-      card.note =
-        "Polybuzz publishes this bot's name, avatar, gender, intro, greeting and tags. " +
-        "Its background text and dialogue-style examples stay in the creator's editor.";
-    }
+    const notes = [];
     // A card read from the profile API alone has no greeting at all. That is a
     // failed read, not a creator choice, so the note says how to retry.
     if (!card.fields.greeting) {
-      card.note =
-        "Polybuzz didn't hand over this character's greeting. Reload its chat page and scan again.";
+      notes.push("Polybuzz didn't hand over this character's greeting. Reload its chat page and scan again.");
     }
+    if (!background && !examples) {
+      if (owner && owner.status === "login") {
+        notes.push(
+          "Polybuzz keeps the background text and the dialogue examples off the public card. " +
+            "Sign in to Polybuzz in this browser, reload the character page and scan again - " +
+            "the reader then asks the account endpoint that still holds them.",
+        );
+      } else if (owner && owner.status === "ok") {
+        notes.push(
+          "Polybuzz returned no background text and no dialogue examples for this character, " +
+            "so the card carries its name, avatar, gender, intro, greeting and tags only.",
+        );
+      } else {
+        notes.push(
+          "Polybuzz didn't answer the background and dialogue lookups for this character. " +
+            "Scan again from its chat page.",
+        );
+      }
+    }
+    if (notes.length) card.note = notes.join(" ");
     return card;
   }
 
@@ -342,7 +413,14 @@
         "Polybuzz didn't return this character. Reload its chat page, wait for it to load, then scan again.";
       throw err;
     }
-    return normalizeScene(scene, profile);
+
+    // Background and dialogue examples are blank on every guest payload, so ask
+    // the account endpoint the edit page uses. It costs one request and is the
+    // only route that can still recover them for someone else's bot.
+    if (onProgress) onProgress("Checking the background and dialogue fields...");
+    const owner = await fetchOwnerScene(s(scene && scene.secretSceneId) || sceneIdFromSlug(id));
+
+    return normalizeScene(scene, profile, owner);
   }
 
   NS.scraper = {
@@ -356,6 +434,8 @@
     findScene,
     fetchPageScene,
     fetchProfile,
+    fetchOwnerScene,
+    postJson,
     normalizeScene,
     decodeGender,
     scanCharacter,
