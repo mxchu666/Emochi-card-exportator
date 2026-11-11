@@ -281,6 +281,28 @@
   // Every guest surface ships `systemRole` and `templateIntro` present but empty,
   // so the account endpoint the edit page loads is the one place left to ask.
   const LOGIN_REQUIRED = 120018;
+  // The edit page catches this exact code, prints the server string and returns to
+  // the character list: the scene does not belong to the signed-in account, so the
+  // editor never opens. Nothing about a reload changes it.
+  const NOT_EDITABLE = 210002;
+
+  // `dialogueStyle` arrives as a string on the create form and as `{dialogue:[...]}`
+  // on the detail record, so every shape is flattened to one label.
+  function labelText(v) {
+    const one = (x) =>
+      typeof x === "string" ? s(x) : x && typeof x === "object" ? s(x.name) || s(x.title) || s(x.dialogue) : "";
+    if (Array.isArray(v)) return v.map(one).filter(Boolean).join(", ");
+    if (v && typeof v === "object") return s(v.name) || s(v.title) || s(v.dialogue) || labelText(v.dialogue);
+    return s(v);
+  }
+
+  // `prologue` is the detail record's name for the greeting; the loader accepts a
+  // string or `{speechText}` and normalises both.
+  function prologueText(v) {
+    if (typeof v === "string") return s(v);
+    if (v && typeof v === "object") return s(v.speechText);
+    return "";
+  }
 
   // Read-only: `getscenedetail` is what the edit page calls to populate its form.
   // Never creates a conversation, unlike `conversation/init`.
@@ -296,8 +318,11 @@
         cuid ? { cuid } : {},
       );
       if (!body) return { status: "error", data: null };
-      if (Number(body.errNo) === LOGIN_REQUIRED) return { status: "login", data: null };
-      if (body.errNo) return { status: "error", data: null, errNo: Number(body.errNo) };
+      const code = Number(body.errNo);
+      const message = s(body.errstr) || s(body.errMsg);
+      if (code === LOGIN_REQUIRED) return { status: "login", data: null };
+      if (code === NOT_EDITABLE) return { status: "not-owner", data: null, errNo: code, message };
+      if (code) return { status: "error", data: null, errNo: code, message };
       const data = body.data && typeof body.data === "object" ? body.data : null;
       return { status: data ? "ok" : "error", data };
     } catch {
@@ -327,11 +352,13 @@
 
     // `systemRole` is the background introduction, `conversationExample` the
     // dialogue examples and `dialogueStyle` the style label. Guest payloads blank
-    // the first two, so whatever the account endpoint returned fills the gap.
+    // the first two, so whatever the account endpoint returned fills the gap. Its
+    // record uses `prologue` and `brief` for the fields the chat page calls
+    // `speechText` and `sceneBrief`.
     const background = s(o.systemRole) || s(a.systemRole) || s(p.systemRole);
     const setting = s(a.templateIntro) || s(o.templateIntro);
     const examples = s(o.conversationExample) || s(a.conversationExample);
-    const style = s(o.dialogueStyle) || s(a.dialogueStyle);
+    const style = labelText(o.dialogueStyle) || labelText(a.dialogueStyle);
 
     const card = {
       id,
@@ -342,10 +369,10 @@
       nsfw: false,
       tags: [...new Set([...tagNames(a.sceneTags), ...tagNames(p.sceneTags)])],
       fields: {
-        description: s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief),
+        description: s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief) || s(o.brief),
         personality: [background, style ? "Dialogue style: " + style : ""].filter(Boolean).join("\n\n"),
         scenario: setting,
-        greeting: s(a.speechText),
+        greeting: s(a.speechText) || prologueText(o.prologue),
         altGreetings: [],
         exampleDialogue: examples,
       },
@@ -368,15 +395,23 @@
             "Sign in to Polybuzz in this browser, reload the character page and scan again - " +
             "the reader then asks the account endpoint that still holds them.",
         );
+      } else if (owner && owner.status === "not-owner") {
+        const who = card.creator ? " (" + card.creator + ")" : "";
+        notes.push(
+          "Polybuzz only serves the background text and the dialogue examples to the bot's creator" +
+            who +
+            ", so this card carries the published fields: name, avatar, gender, intro, greeting and tags.",
+        );
       } else if (owner && owner.status === "ok") {
         notes.push(
           "Polybuzz returned no background text and no dialogue examples for this character, " +
             "so the card carries its name, avatar, gender, intro, greeting and tags only.",
         );
       } else if (owner && owner.errNo) {
+        const detail = owner.message ? " - " + owner.message : "";
         notes.push(
           "Polybuzz refused the background and dialogue lookups for this character " +
-            "(code " + owner.errNo + "). Reload its chat page and scan again.",
+            "(code " + owner.errNo + detail + "). Reload its chat page and scan again.",
         );
       } else {
         notes.push(
@@ -451,6 +486,8 @@
     fetchProfile,
     fetchOwnerScene,
     postJson,
+    labelText,
+    prologueText,
     normalizeScene,
     decodeGender,
     scanCharacter,

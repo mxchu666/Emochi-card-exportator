@@ -174,6 +174,63 @@ test("fetchOwnerScene returns the account payload when the server allows it", as
   }
 });
 
+test("fetchOwnerScene marks a scene the account does not own as not-owner, not as a retry", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ errNo: 210002, errstr: "No permission to edit this character", data: {} }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  try {
+    const owner = await P.fetchOwnerScene("bHJrz");
+    assert.equal(owner.status, "not-owner");
+    assert.equal(owner.errNo, 210002);
+
+    const card = P.normalizeScene(SCENE, null, owner);
+    assert.match(card.note, /only serves the background text and the dialogue examples to the bot's creator \(Erica ★\)/);
+    assert.doesNotMatch(card.note, /Reload/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("normalizeScene reads the detail record's own field names", () => {
+  const card = P.normalizeScene(SCENE, null, {
+    status: "ok",
+    data: {
+      sceneName: "Bangchan",
+      brief: "Aw, babe.",
+      prologue: { speechText: "*Bangchan es tu esposo*" },
+      systemRole: "Creció en Busan.",
+      conversationExample: "{{char}}: No.",
+      dialogueStyle: { dialogue: [{ name: "Descriptivo" }, { title: "Frases cortas" }] },
+    },
+  });
+
+  assert.equal(card.fields.greeting, SCENE.speechText);
+  assert.equal(card.fields.personality, "Creció en Busan.\n\nDialogue style: Descriptivo, Frases cortas");
+  assert.equal(card.fields.exampleDialogue, "{{char}}: No.");
+  assert.equal(card.note, undefined);
+
+  // The detail record's `prologue` only stands in when the page had no greeting.
+  const bare = P.normalizeScene({ secretSceneId: "bHJrz", sceneName: "Bangchan" }, null, {
+    status: "ok",
+    data: { prologue: { speechText: "*Bangchan es tu esposo*" }, brief: "Aw, babe." },
+  });
+  assert.equal(bare.fields.greeting, "*Bangchan es tu esposo*");
+  assert.equal(bare.fields.description, "Aw, babe.");
+});
+
+test("prologueText and labelText flatten every shape the site uses", () => {
+  assert.equal(P.prologueText("hola"), "hola");
+  assert.equal(P.prologueText({ speechText: "hola" }), "hola");
+  assert.equal(P.prologueText(null), "");
+  assert.equal(P.labelText("Descriptivo"), "Descriptivo");
+  assert.equal(P.labelText({ dialogue: [{ name: "A" }, "B"] }), "A, B");
+  assert.equal(P.labelText([{ title: "C" }]), "C");
+  assert.equal(P.labelText(undefined), "");
+});
+
 test("fetchOwnerScene treats the site guard answer as an error, not as an empty scene", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () =>
