@@ -64,10 +64,17 @@
     return svg;
   }
 
+  // Null means the extension context is gone (tab outlived an extension reload),
+  // so callers skip the asset instead of resolving a bogus page-relative URL.
   function assetUrl(path) {
-    return typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL
-      ? chrome.runtime.getURL(path)
-      : path;
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL) {
+        return chrome.runtime.getURL(path);
+      }
+    } catch {
+      /* extension context invalidated */
+    }
+    return null;
   }
 
  function download(filename, data, mime) {
@@ -402,7 +409,7 @@
       }),
       el("p", {
         class: "jaix-hint",
-        text: scraper.hint || "Quick gets the card. Deep also gets every linked lorebook.",
+        text: (NS.scraper && NS.scraper.hint) || "Quick gets the card. Deep also gets every linked lorebook.",
       }),
       el("div", { class: "jaix-scanrow" }, [quickButton, deepButton]),
       status,
@@ -560,42 +567,61 @@
     });
   }
 
+  // Critical layout, inlined. panel.css resolves to a chrome-extension: URL that
+  // dies when a tab outlives an extension reload; without these rules the launcher
+  // renders as a plain block past the end of the app and is never seen.
+  const CRITICAL_CSS = [
+    ".jaix-wrap{position:fixed;right:18px;bottom:18px;z-index:2147483647;color:#fafafa;font:13px/1.45 system-ui,sans-serif}",
+    ".jaix-fab{display:inline-flex;align-items:center;gap:9px;min-height:46px;padding:5px 16px 5px 6px;border:0;border-radius:999px;background:#f2f2f2;color:#141414;font:720 13px/1.3 system-ui,sans-serif;cursor:pointer}",
+    ".jaix-fab-mark{display:block;width:36px;height:36px;border-radius:50%;object-fit:cover}",
+    ".jaix-panel{position:fixed;right:18px;bottom:74px;width:420px;max-width:calc(100vw - 36px);max-height:min(780px,calc(100vh - 104px));overflow:auto;background:#1a1a1c;color:#fafafa;border-radius:18px;font:13px/1.45 system-ui,sans-serif}",
+  ].join("");
+
   function mount() {
     if (document.getElementById("jaix-host")) return;
     const host = el("div", { id: "jaix-host" });
     document.documentElement.appendChild(host);
     const shadow = host.attachShadow({ mode: "open" });
 
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = assetUrl("src/panel.css");
-    shadow.appendChild(link);
+    const critical = document.createElement("style");
+    critical.textContent = CRITICAL_CSS;
+    shadow.appendChild(critical);
+
+    const sheet = assetUrl("src/panel.css");
+    if (sheet) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = sheet;
+      shadow.appendChild(link);
+    }
 
     root = shadow;
     const wrap = el("div", { class: "jaix-wrap" });
+    const mark = assetUrl("assets/inkwell-mark.png");
     launcher = el(
       "button",
       {
         class: "jaix-fab",
         type: "button",
-        title: "Abrir exportador de Emochi",
-        "aria-label": "Abrir exportador de Emochi",
+        title: "Extract a character card",
+        "aria-label": "Extract a character card",
         "aria-controls": "jaix-panel",
         "aria-expanded": "false",
         onClick: togglePanel,
       },
       [
-        el("img", {
-          class: "jaix-fab-mark",
-          src: assetUrl("assets/inkwell-mark.png"),
-          alt: "",
-        }),
+        ...(mark ? [el("img", { class: "jaix-fab-mark", src: mark, alt: "" })] : []),
         el("span", { text: "Extract card" }),
       ],
     );
     wrap.appendChild(launcher);
     shadow.appendChild(wrap);
   }
+
+  // Both sites are client-routed SPAs; if a route change tears the host out, put it back.
+  new MutationObserver(() => {
+    if (root && !document.getElementById("jaix-host")) mount();
+  }).observe(document.documentElement, { childList: true });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", mount);
