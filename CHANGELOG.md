@@ -6,6 +6,31 @@ The narrative version — how a decision was reached, what was tried and failed 
 
 ---
 
+## 0.9.1
+
+**Character.ai used the wrong auth scheme, and a cold profile URL had nothing to read.**
+
+Reported against `character.ai/character/piNpVEtc`: the token was captured, three endpoints were asked, and the panel said the character was not returned. Two separate faults.
+
+- **The scheme was rebuilt instead of preserved.** `intercept.js` captured the whole `Authorization` header, the reader stripped `Token` / `Bearer` off it and put `Token` back. Character.ai has used both schemes, so a `Bearer` session was sent as a `Token` one and answered 401. The raw header is now carried through untouched (`harvest.tokenHeader()`), and the bare token stays available for anything that needs it.
+- **Nothing was fetched on a cold load.** Opening a profile URL renders server-side: the App Router streams the record as `self.__next_f.push` chunks, so no JSON response exists for `intercept.js` to re-broadcast, and the replays were the only path — from the service worker, which sent no cookies because `background.js` defaults to `credentials: "omit"` and the reader never asked for `include`. Cloudflare sees a bot and answers 403.
+
+The ladder is now, in order:
+
+1. page-context `fetch` with the captured header and cookies — the request the site itself makes, under the origin its CORS config already allows;
+2. the same call through the service worker, now with `credentials: "include"`;
+3. the live payloads and the page's flight data, scored by field names;
+4. the character page fetched as HTML through the worker with cookies, record cut out of the flight stream;
+5. a cookie-only call, in case the session moved off the header entirely.
+
+The failure message now carries the trail — every endpoint, transport and status that was tried — so a report says which stage refused instead of only that something did.
+
+Also in this release: `bestCharacter` roots now include App Router flight records, so a server-rendered Character.ai or Crushon page can be read without any capture at all; and `embeddedObjects` steps back through nested braces, because a description containing `{light}` used to make the nearest opening brace the wrong one.
+
+92 tests.
+
+---
+
 ## 0.9.0
 
 **Character.ai and Crushon.ai readers, Polybuzz example dialogues, an Emochi parser that stops losing fields, and the Emochi Lab.**

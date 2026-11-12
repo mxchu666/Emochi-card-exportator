@@ -137,7 +137,7 @@ Una tarjeta de Polybuzz sale con lo que el sitio publica:
 
 **Sobre la definición.** Character.ai esconde la definición de un personaje detrás de un segundo interruptor del creador llamado **Definition Visibility**, separado de la visibilidad del personaje. Cuando está apagado, el sitio no envía el texto a nadie, así que el bloque de diálogo de ejemplo sale vacío y el panel lo dice en una nota al pie. El resto de campos está ahí igualmente.
 
-El lector funciona observando las peticiones de la propia página: un script pequeño en el mundo de la página (`src/intercept.js`) copia la cabecera `Authorization` a una etiqueta oculta y reemite cada respuesta JSON como un evento del DOM, que el lector recoge. Nunca modifica una petición ni manda una propia con tu token. Cuando la página todavía no ha hecho la llamada, el lector repite los mismos tres endpoints que usa el sitio, a través del service worker de la extensión.
+El lector funciona observando las peticiones de la propia página: un script pequeño en el mundo de la página (`src/intercept.js`) copia la cabecera `Authorization` a una etiqueta oculta y reemite cada respuesta JSON como un evento del DOM, que el lector recoge. Nunca modifica una petición ni manda una propia con tu token. Cuando la página todavía no ha hecho la llamada, el lector pregunta en este orden: el contexto de la propia página con la cabecera capturada y sus cookies, la misma llamada a través del service worker con cookies, las cargas y los datos que el servidor renderizó, y por último la página del personaje descargada como HTML con el registro recortado del flujo. La cabecera se usa tal como la envió la página: el sitio ha usado `Token` y `Bearer`, y reconstruir el esquema produce un 401.
 
 ### Crushon.ai
 
@@ -256,7 +256,8 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
-| 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 89 tests |
+| 0.9.1 | Character.ai: esquema de autenticación preservado, escalera de lectura en carga fría, respaldo con datos de renderizado; 92 tests |
+| 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 92 tests |
 | 0.8.0 | Renombrado, documentación en seis idiomas, sección de crédito, reescritura de la evidencia de Polybuzz, Issues habilitado |
 | 0.7.13 | Personality de Polybuzz desde las etiquetas `Personalidad` del creador |
 | 0.7.12 | Scenario de Polybuzz desde la dirección escénica del saludo |

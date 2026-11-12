@@ -142,7 +142,11 @@ A Polybuzz card comes out with what the site publishes:
 
 **About the Definition.** Character.ai hides a character's Definition behind a second creator switch called **Definition Visibility**, separate from Character Visibility. When it is off, the site does not send the text to anyone, so the example dialogue block comes out empty and the panel says so in a footnote. Every other field is there regardless.
 
-The reader works by watching the page's own requests: a small script in the page's own world (`src/intercept.js`) copies the `Authorization` header into a hidden tag and re-broadcasts every JSON response as a DOM event, which the reader picks up. It never changes a request and never sends one of its own with your token. When the page has not made the call yet, the reader replays the same three endpoints the site uses, through the extension's service worker.
+The reader works by watching the page's own requests: a small script in the page's own world (`src/intercept.js`) copies the `Authorization` header into a hidden tag and re-broadcasts every JSON response as a DOM event, which the reader picks up. It never changes a request and never sends one of its own with your token.
+
+When the page has not made the call yet — a cold load of a profile URL is rendered server-side, so there is no response to watch — the reader asks, in this order: the page's own context with the captured header and cookies, the same call through the extension's service worker with cookies, the payloads and the page's server-rendered flight data, then the character page fetched as HTML with the record cut out of the stream. The failure message names every endpoint, transport and status that was tried, so a bug report says which stage refused.
+
+**Fixed in 0.9.1.** Two faults made this fail on a real page (`character.ai/character/piNpVEtc`): the reader rebuilt the auth scheme as `Token` after stripping whatever the page used, so a `Bearer` session was rejected; and the worker transport sent no cookies, so Cloudflare answered 403. The header is now carried through untouched and every transport carries cookies. Detail in the [changelog](CHANGELOG.md).
 
 ### Crushon.ai
 
@@ -187,7 +191,7 @@ A short record, because the shape of the process explains why the limits above a
 6. **Enumerate the API, do not guess it.** The site's JavaScript bundle declares 214 request configs. Every read-only one was called against public bots. This is how the "background is unreachable" conclusion was reached — not by failing once, but by exhausting the surface.
 7. **Prove the negative with a control.** The `ZZZ-123` experiment, run on two accounts, is what turned "we cannot find it" into "it is not there to be found".
 8. **Keep the panel quiet.** A missing creator-private field is the normal case, not an error. The panel shows a footnote, not a banner. Only a genuine failure (signed out, no route answered) gets a message.
-9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 89 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
+9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 92 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
 10. **Write it down.** The developer section below exists so the next person does not have to re-derive it.
 11. **Reuse before writing.** Character.ai and Crushon.ai both only give the record to their own JavaScript, so one mechanism covers both: a page-world sniffer plus a scoring walk over the payloads. One new file each, plus two shared ones, and the exporters were not touched.
 12. **Credit the source of an approach.** The interception pattern comes from [taquanta's exporter](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), and the credit sits at the top of the file and in this README, not only in a commit message.
@@ -261,7 +265,8 @@ Short version:
 
 | Version | What landed |
 |---|---|
-| 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 89 tests |
+| 0.9.1 | Character.ai: auth scheme preserved, cold-load reading ladder, flight-data fallback; 92 tests |
+| 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 92 tests |
 | 0.8.0 | Renamed, six-language docs, credit section, Polybuzz evidence rewrite, Issues enabled |
 | 0.7.13 | Polybuzz Personality from the creator's `Personalidad` tags |
 | 0.7.12 | Polybuzz Scenario from the greeting's stage direction |
@@ -376,7 +381,8 @@ Polybuzz is a Nuxt 3 app. The character is server-rendered into the chat page, s
 
 Character.ai publishes nothing without a session, and the record is only ever fetched by the page's own JavaScript. The extension therefore does not ask for it first — it listens.
 
-- `POST https://neo.character.ai/character/v1/get_character_info` with `{"external_id": "<id>", "lang": "en"}` answers `{"character": {...}, "status": "OK"}`. Anonymous, it answers `{"character": [], "status": "NOT_OK", "error": "bad request"}` — the route is alive and refuses the body, not the caller. The header is `Authorization: Token <hex>`, **not** `Bearer`.
+- `POST https://neo.character.ai/character/v1/get_character_info` with `{"external_id": "<id>", "lang": "en"}` answers `{"character": {...}, "status": "OK"}`. Anonymous, it answers `{"character": [], "status": "NOT_OK", "error": "bad request"}` — the route is alive and refuses the body, not the caller. The header is `Authorization: Token <hex>`, **not** `Bearer`; the extension sends whatever scheme the page itself used, because the site has shipped both and a rebuilt scheme is a 401.
+- **A cold profile load is server-rendered.** Next's App Router streams the record as `self.__next_f.push([1,"…"])` chunks, so `intercept.js` has no JSON response to re-broadcast and the API is the only live source. `harvest.flightText()` joins the flight chunks and `embeddedObjects()` cuts records out of them, which also gives Crushon a read path that needs no capture at all.
 - `POST https://plus.character.ai/chat/character/info/` and `https://plus.character.ai/chat/character/` are the older endpoints and take the same body. Both answer `403` to an unauthenticated caller. The reader tries all three and takes the first that answers.
 - The record carries `name`, `title`, `description`, `greeting`, `definition`, `avatar_file_name`, `external_id`, `user__username` and `has_definition`. `title` is the tagline and `description` is the About text; the card joins them, tagline first.
 - Avatar: `https://characterai.io/i/400/static/avatars/<avatar_file_name>`. The `character.ai` host also serves it, but `characterai.io` is what the app itself uses.

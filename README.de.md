@@ -142,7 +142,7 @@ Eine Polybuzz-Karte enthält, was die Seite veröffentlicht:
 
 **Zur Definition.** Character.ai versteckt die Definition eines Charakters hinter einem zweiten Schalter des Erstellers, **Definition Visibility**, getrennt von der Charakter-Sichtbarkeit. Ist er aus, schickt die Seite den Text niemandem, also bleibt der Block für Beispielgespräche leer und das Panel sagt das in einer Fußnote. Alle anderen Felder sind unabhängig davon da.
 
-Der Leser arbeitet, indem er die Anfragen der Seite beobachtet: ein kleines Skript in der Welt der Seite (`src/intercept.js`) kopiert den `Authorization`-Header in ein verstecktes Tag und sendet jede JSON-Antwort als DOM-Ereignis erneut aus, wo der Leser sie aufnimmt. Es ändert nie eine Anfrage und schickt nie eine eigene mit deinem Token. Wenn die Seite den Aufruf noch nicht gemacht hat, wiederholt der Leser dieselben drei Endpunkte, die die Seite nutzt, über den Service Worker der Erweiterung.
+Der Leser arbeitet, indem er die Anfragen der Seite beobachtet: ein kleines Skript in der Welt der Seite (`src/intercept.js`) kopiert den `Authorization`-Header in ein verstecktes Tag und sendet jede JSON-Antwort als DOM-Ereignis erneut aus, wo der Leser sie aufnimmt. Es ändert nie eine Anfrage und schickt nie eine eigene mit deinem Token. Wenn die Seite den Aufruf noch nicht gemacht hat, fragt der Leser in dieser Reihenfolge: im Kontext der Seite selbst mit dem erfassten Header und ihren Cookies, derselbe Aufruf über den Service Worker mit Cookies, die Nutzlasten und die serverseitig gerenderten Daten, und zuletzt die Charakterseite als HTML mit dem aus dem Stream geschnittenen Datensatz. Der Header wird so verwendet, wie die Seite ihn gesendet hat: Die Seite hat sowohl `Token` als auch `Bearer` benutzt, und ein neu zusammengesetztes Schema ergibt ein 401.
 
 ### Crushon.ai
 
@@ -261,7 +261,8 @@ Kurzfassung:
 
 | Version | Was kam |
 |---|---|
-| 0.9.0 | Leser für Character.ai und Crushon.ai, Polybuzz-Beispielgespräche, Emochi-Parser-Korrekturen, Emochi Lab, 89 Tests |
+| 0.9.1 | Character.ai: Auth-Schema beibehalten, Kaltstart-Leiter, Fallback auf gerenderte Daten, 92 Tests |
+| 0.9.0 | Leser für Character.ai und Crushon.ai, Polybuzz-Beispielgespräche, Emochi-Parser-Korrekturen, Emochi Lab, 92 Tests |
 | 0.8.0 | Umbenennung, Dokumentation in sechs Sprachen, Credit-Abschnitt, Polybuzz-Evidenz neu geschrieben, Issues aktiviert |
 | 0.7.13 | Polybuzz-Personality aus den `Personalidad`-Tags des Erstellers |
 | 0.7.12 | Polybuzz-Szenario aus der Regieanweisung der Begrüßung |

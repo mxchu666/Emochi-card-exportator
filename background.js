@@ -12,7 +12,9 @@
 // host permission sends the signed-in cookies.
 
 const TIMEOUT_MS = 20000;
-const MAX_BODY = 2 * 1024 * 1024;
+// A character page's server-rendered stream is large; the Character.ai fallback
+// parses the record out of that HTML, so the cap has to clear a full document.
+const MAX_BODY = 5 * 1024 * 1024;
 const METHODS = new Set(["GET", "POST"]);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

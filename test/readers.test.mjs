@@ -151,3 +151,42 @@ test("the backlog left by the page-world script is drained at load", () => {
   const found = fresh.JAIX.harvest.bestCharacter(fresh.JAIX.harvest.roots(), ["name", "description", "greeting"]);
   assert.equal(found.name, "Bex");
 });
+
+test("embeddedObjects cuts a record out of a stream and survives braces in prose", () => {
+  const text =
+    'noise {"marker":1} before {"name":"Mira","description":"Keeps the {light} on.","greeting":"Late again.","external_id":"piNpVEtc"} after';
+  const found = H.embeddedObjects(text, ["greeting", "external_id"], 4);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].name, "Mira");
+  assert.equal(found[0].description, "Keeps the {light} on.");
+});
+
+test("flightText joins the App Router stream and embeddedObjects recovers the record", () => {
+  const record = { name: "Ito", title: "Night ferry", description: "Crosses at 3.", greeting: "Ticket?", external_id: "abc123" };
+  const chunk = '3:["$","div",null,{"character":' + JSON.stringify(record) + "}]";
+  const script = "self.__next_f.push([1," + JSON.stringify(chunk) + "])";
+  const fake = {
+    addEventListener: () => {},
+    querySelectorAll: (selector) => (selector === "script" ? [{ textContent: script }] : []),
+    getElementById: () => null,
+  };
+  new Function("window", "document", read("harvest.js"))(fake, fake);
+  const joined = fake.JAIX.harvest.flightText();
+  assert.match(joined, /Night ferry/);
+  const found = fake.JAIX.harvest.embeddedObjects(joined, ["greeting", "external_id"], 4);
+  assert.equal(found[0].name, "Ito");
+});
+
+test("tokenHeader keeps the scheme the page used", () => {
+  const holder = { value: "Bearer abc.def.ghi" };
+  const fake = {
+    addEventListener: () => {},
+    getElementById: () => null,
+    querySelector: () => ({ getAttribute: () => holder.value }),
+    querySelectorAll: () => [],
+  };
+  new Function("window", "document", read("harvest.js"))(fake, fake);
+  const h = fake.JAIX.harvest;
+  assert.equal(h.tokenHeader(), "Bearer abc.def.ghi");
+  assert.equal(h.token(), "abc.def.ghi");
+});

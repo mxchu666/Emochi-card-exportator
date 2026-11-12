@@ -48,11 +48,16 @@
   }
 
   // `intercept.js` stores the page's own auth header here. The value is the whole
-  // header ("Token <hex>"), because that is what the API expects back.
-  function token() {
+  // header ("Token <hex>", "Bearer <jwt>", whatever the site ships today), because
+  // that is what the API expects back. Rebuilding the scheme from a bare token is
+  // how a working capture turns into a 401 after the site changes its auth.
+  function tokenHeader() {
     const tag = document.querySelector("meta[jaix_token]");
-    const value = tag ? s(tag.getAttribute("jaix_token")) : "";
-    return value.replace(/^token\s+/i, "").replace(/^bearer\s+/i, "");
+    return tag ? s(tag.getAttribute("jaix_token")) : "";
+  }
+
+  function token() {
+    return tokenHeader().replace(/^(token|bearer)\s+/i, "");
   }
 
   function nextData() {
@@ -80,6 +85,110 @@
       if (text) out.push(text);
     });
     return out;
+  }
+
+  const MAX_FLIGHT = 4000000;
+
+  // Next's App Router streams the server-rendered tree as `self.__next_f.push`
+  // calls instead of a `__NEXT_DATA__` blob. The argument is a JSON array whose
+  // string members concatenate into the flight payload, so each array is parsed
+  // and its strings joined. Sites rendered this way have no JSON response to
+  // observe on a cold load, which is exactly when a reader needs the page itself.
+  function flightText() {
+    if (typeof document === "undefined" || !document) return "";
+    const chunks = [];
+    let total = 0;
+    document.querySelectorAll("script").forEach((node) => {
+      const text = node.textContent || "";
+      if (total > MAX_FLIGHT || text.indexOf("__next_f.push") < 0) return;
+      const re = /self\.__next_f\.push\((\[[\s\S]*?\])\)/g;
+      let hit = re.exec(text);
+      while (hit) {
+        try {
+          const args = JSON.parse(hit[1]);
+          const joined = args.filter((part) => typeof part === "string").join("");
+          if (joined) {
+            chunks.push(joined);
+            total += joined.length;
+          }
+        } catch {
+          /* not the flight shape */
+        }
+        hit = re.exec(text);
+      }
+    });
+    return chunks.join("");
+  }
+
+  // Cuts the JSON object that starts at `start`, honouring strings and escapes so
+  // a brace inside a description does not end it early.
+  function balancedObject(text, start) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return "";
+  }
+
+  // Every object in `text` that mentions one of `keys`. This is how a record is
+  // recovered from a stream too large and too loosely structured to parse whole.
+  // A brace inside prose ("Keeps the {light} on") is nearer than the real opening
+  // brace, so a failed parse steps back to the previous `{` a few times before it
+  // gives up on that key.
+  function embeddedObjects(text, keys, limit) {
+    const raw = s(text);
+    if (!raw) return [];
+    const out = [];
+    const seen = new Set();
+    const cap = limit || 8;
+    for (const key of keys) {
+      const needle = '"' + key + '"';
+      let at = -1;
+      let taken = 0;
+      while ((at = raw.indexOf(needle, at + 1)) >= 0 && taken < cap) {
+        let start = raw.lastIndexOf("{", at);
+        let tries = 0;
+        while (start >= 0 && tries < 6) {
+          tries += 1;
+          const slice = balancedObject(raw, start);
+          if (slice) {
+            const stamp = start + ":" + slice.length;
+            if (seen.has(stamp)) break;
+            if (slice.indexOf(needle) >= 0) {
+              try {
+                const parsed = JSON.parse(slice);
+                seen.add(stamp);
+                taken += 1;
+                out.push(parsed);
+                break;
+              } catch {
+                /* not the real opening brace */
+              }
+            }
+          }
+          start = raw.lastIndexOf("{", start - 1);
+        }
+      }
+    }
+    return out;
+  }
+
+  function flightObjects(keys) {
+    return embeddedObjects(flightText(), keys, 8);
   }
 
   // Depth-first walk over a parsed payload. JSON strings inside payloads are
@@ -160,11 +269,15 @@
   NS.harvest = {
     payloads,
     token,
+    tokenHeader,
     nextData,
     documentPayloads,
+    flightText,
+    embeddedObjects,
+    flightObjects,
     bestCharacter,
     firstString,
     firstValue,
-    roots: () => payloads().concat(documentPayloads()),
+    roots: (keys) => payloads().concat(documentPayloads()).concat(keys ? flightObjects(keys) : []),
   };
 })();

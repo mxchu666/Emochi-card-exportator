@@ -37,7 +37,57 @@
     return H ? H.token() : "";
   }
 
-  function backgroundFetch(url, token, body) {
+  // The header exactly as the page sent it. The site has shipped `Token <hex>` and
+  // `Bearer <jwt>` at different times; rebuilding the scheme from a bare token
+  // breaks the moment it changes, and the failure looks like a missing character.
+  function readAuthHeader() {
+    return H && typeof H.tokenHeader === "function" ? H.tokenHeader() : "";
+  }
+
+  function attemptLabel(transport, url) {
+    return transport + " " + url.replace(/^https:\/\//, "").replace(/\/$/, "");
+  }
+
+  function note(attempts, transport, url, reply, error) {
+    attempts.push({
+      label: attemptLabel(transport, url),
+      status: reply ? reply.status || 0 : 0,
+      ok: Boolean(reply && reply.ok),
+      error: error ? String(error).slice(0, 80) : "",
+    });
+  }
+
+  // First transport: the page's own context. It carries the site's cookies and
+  // runs under the origin the API already allows, which is what the site itself
+  // does. Cross-origin, so it only works if the API sends CORS headers — and when
+  // it does, it is the request least likely to be refused.
+  async function pageFetch(url, auth, body) {
+    try {
+      const headers = { "Content-Type": "application/json", Accept: "application/json" };
+      if (auth) headers.Authorization = auth;
+      const res = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+      return { ok: res.ok, status: res.status, body: parsed, text };
+    } catch (error) {
+      return { ok: false, status: 0, error: String(error), blocked: "cors-or-network" };
+    }
+  }
+
+  // Second transport: the service worker. Not subject to CORS, and the site's
+  // Cloudflare cookies ride along only because `credentials: "include"` is set —
+  // without them a request from the worker looks like a bot and gets a 403.
+  function backgroundFetch(url, auth, body) {
     return new Promise((resolve) => {
       let settled = false;
       const finish = (value) => {
@@ -52,7 +102,7 @@
         // A malformed header (empty token) makes fetch throw before it leaves, so
         // the header is only attached when there is a token to attach.
         const headers = { "Content-Type": "application/json", Accept: "application/json" };
-        if (token) headers.Authorization = "Token " + token;
+        if (auth) headers.Authorization = auth;
         chrome.runtime.sendMessage(
           {
             type: "jaix:fetch",
@@ -60,6 +110,7 @@
             method: "POST",
             body: JSON.stringify(body),
             headers,
+            credentials: "include",
           },
           (reply) => {
             void chrome.runtime.lastError;
@@ -85,16 +136,66 @@
   }
 
   async function fetchCharacter(id) {
-    const token = readToken();
+    const auth = readAuthHeader() || (readToken() ? "Token " + readToken() : "");
     const attempts = [];
     for (const url of [NEO, ...PLUS]) {
-      const reply = await backgroundFetch(url, token, { external_id: id, lang: "en" });
-      attempts.push({ url, status: reply ? reply.status : 0, ok: Boolean(reply && reply.ok) });
-      if (!reply || !reply.ok) continue;
-      const parsed = unwrap(reply.body);
+      for (const transport of ["page", "worker"]) {
+        const reply =
+          transport === "page"
+            ? await pageFetch(url, auth, { external_id: id, lang: "en" })
+            : await backgroundFetch(url, auth, { external_id: id, lang: "en" });
+        note(attempts, transport, url, reply, reply && reply.error);
+        const parsed = reply && reply.ok ? unwrap(reply.body) : null;
+        if (parsed) return { character: parsed, attempts };
+      }
+    }
+    // Cookie-only last try: if the site moved the session back onto cookies, the
+    // header is not what it wants, and an empty Authorization is the right request.
+    if (auth) {
+      const reply = await pageFetch(NEO, "", { external_id: id, lang: "en" });
+      note(attempts, "page(cookie)", NEO, reply, reply && reply.error);
+      const parsed = reply && reply.ok ? unwrap(reply.body) : null;
       if (parsed) return { character: parsed, attempts };
     }
     return { character: null, attempts };
+  }
+
+  // Last resort: the character page itself, read through the worker with cookies.
+  // A cold load is server-rendered, so the record exists in the page's own flight
+  // data even when no API call was ever made from this tab.
+  function backgroundGet(url) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      try {
+        if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) {
+          return finish(null);
+        }
+        chrome.runtime.sendMessage(
+          { type: "jaix:fetch", url, method: "GET", credentials: "include" },
+          (reply) => {
+            void chrome.runtime.lastError;
+            finish(reply || null);
+          },
+        );
+      } catch {
+        return finish(null);
+      }
+      setTimeout(() => finish(null), TIMEOUT_MS);
+    });
+  }
+
+  async function pageHtmlCharacter(id) {
+    const url = "https://character.ai/character/" + encodeURIComponent(id);
+    const reply = await backgroundGet(url);
+    if (!reply || !reply.ok) return null;
+    const text = s(reply.text) || (reply.body ? JSON.stringify(reply.body) : "");
+    if (!text) return null;
+    return H ? H.bestCharacter(H.embeddedObjects(text, KEYS, 8), KEYS) : null;
   }
 
   // What the page itself already loaded. Same scoring as the other readers: the
@@ -112,7 +213,7 @@
 
   function harvested(id) {
     if (!H) return null;
-    const found = H.bestCharacter(H.roots(), KEYS);
+    const found = H.bestCharacter(H.roots(KEYS), KEYS);
     if (!found) return null;
     if (id && found.external_id && found.external_id !== id) return null;
     return found;
@@ -178,16 +279,24 @@
 
     let record = null;
     let attempts = [];
-    if (readToken()) {
+    const auth = readAuthHeader();
+    if (auth || readToken()) {
       const reply = await fetchCharacter(id);
       record = reply.character;
       attempts = reply.attempts;
     }
     if (!record) record = harvested(id);
     if (!record) {
+      if (onProgress) onProgress("Reading the page record...");
+      record = await pageHtmlCharacter(id);
+    }
+    if (!record) {
       const err = new Error("no-character");
-      err.friendly = readToken()
-        ? "Character.ai didn't return this character. Reload its page, wait for it to finish loading, then scan again."
+      const trail = attempts.length
+        ? " Tried: " + attempts.map((a) => a.label + " → " + (a.status || a.error || "no answer")).join("; ") + "."
+        : "";
+      err.friendly = auth || readToken()
+        ? "Character.ai didn't return this character, and its page didn't carry the record either." + trail + " Reload the page, wait for it to finish loading, then scan again."
         : "Character.ai didn't hand over its sign-in token. Reload the character page (the extension reads the token from the page's own request) and scan again.";
       err.attempts = attempts;
       throw err;
@@ -198,8 +307,10 @@
   NS.scraper = {
     currentCharacterId,
     readToken,
+    readAuthHeader,
     fetchCharacter,
     harvested,
+    pageHtmlCharacter,
     normalizeCharacter,
     scanCharacter,
     hint: "Reads the Character.ai record the page itself loads: name, tagline, About text, greeting, and the Definition when the creator made it public.",
