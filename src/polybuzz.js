@@ -336,7 +336,7 @@
   // Read-only: `getscenedetail` is what the edit page calls to populate its form.
   // Never creates a conversation, unlike `conversation/init`.
   async function fetchOwnerScene(id) {
-    const result = await callPromptRoute(PROMPT_ROUTES[0], id);
+    const result = await callPromptRoute(PROMPT_ROUTES[0], scenePayload(id));
     return { status: result.status, data: result.data, errNo: result.errNo, message: result.message };
   }
 
@@ -395,10 +395,9 @@
     { key: "init", label: "init", path: "/api/conversation/init", form: true },
   ];
 
-  async function callPromptRoute(route, id) {
+  async function callPromptRoute(route, payload) {
     const cuid = readCuid();
     const headers = cuid ? { cuid } : {};
-    const payload = { secretSceneId: id, secretSceneID: id };
     const out = { route: route.label, status: "error", data: null, fields: {} };
     try {
       const body = route.form
@@ -417,21 +416,51 @@
     }
   }
 
+  function scenePayload(id) {
+    return { secretSceneId: id, secretSceneID: id };
+  }
+
+  // `getsceneconfig` is named for a *conversation*, not a scene. Handed a scene id
+  // it can answer with the defaults the server compiles from the short intro,
+  // which is how a background comes back looking exactly like the description.
+  // `init` creates the conversation and returns its id; the config pass is then
+  // repeated with that id, which is the argument the route is for.
+  const CONVERSATION_ID_KEYS = ["conversationId", "conversationID", "conversation_id", "chatId", "sessionId"];
+
+  function pickConversationId(root) {
+    const seen = new Set();
+    const walk = (node, depth) => {
+      if (!node || typeof node !== "object" || depth > 7 || seen.has(node)) return "";
+      seen.add(node);
+      const entries = Array.isArray(node) ? node.map((v, i) => [i, v]) : Object.entries(node);
+      for (const [key, value] of entries) {
+        if (!CONVERSATION_ID_KEYS.includes(String(key))) continue;
+        if (typeof value !== "string" && typeof value !== "number") continue;
+        const id = String(value).trim();
+        if (id && id !== "0") return id;
+      }
+      for (const [, value] of entries) {
+        const id = walk(value, depth + 1);
+        if (id) return id;
+      }
+      return "";
+    };
+    return walk(root, 0);
+  }
+
   async function fetchSceneConfig(id) {
-    return callPromptRoute(PROMPT_ROUTES[1], id);
+    return callPromptRoute(PROMPT_ROUTES[1], scenePayload(id));
   }
 
   // Every route is asked until one returns both prompt fields, so a card that
   // Polybuzz does publish comes back in one try and a card it withholds costs
-  // three. The trace is what the note reports, so a screenshot of the panel names
-  // the endpoint and the code instead of guessing.
+  // four. The trace names the endpoint and the code on every answer.
   async function fetchPromptFields(id) {
     const trace = [];
     const fields = {};
     let detail = null;
-    for (const route of PROMPT_ROUTES) {
-      const result = await callPromptRoute(route, id);
-      if (route.key === "detail") detail = result;
+    let conversationId = "";
+    const take = (result) => {
       trace.push({
         route: result.route,
         status: result.status,
@@ -442,7 +471,22 @@
       for (const [key, value] of Object.entries(result.fields)) {
         if (fields[key] === undefined) fields[key] = value;
       }
-      if (fields.systemRole && fields.conversationExample) break;
+      return Boolean(fields.systemRole && fields.conversationExample);
+    };
+
+    for (const route of PROMPT_ROUTES) {
+      const result = await callPromptRoute(route, scenePayload(id));
+      if (route.key === "detail") detail = result;
+      if (route.key === "init") conversationId = pickConversationId(result.data);
+      if (take(result)) return { detail, fields, trace };
+    }
+
+    if (conversationId) {
+      const result = await callPromptRoute(
+        { ...PROMPT_ROUTES[1], label: "getsceneconfig chat" },
+        { conversationId, ...scenePayload(id) },
+      );
+      take(result);
     }
     return { detail, fields, trace };
   }
@@ -551,6 +595,13 @@
       }
     }
     if (notes.length) card.note = notes.join(" ");
+
+    // A quiet footnote under the block list, not a banner: three blocks where the
+    // user expects five needs a reason, and the reason is the site's, not a bug.
+    if (!background && s(owner && owner.status) !== "login") {
+      card.hint =
+        "Polybuzz keeps the background (Antecedentes) private to its creator, so this card carries the intro, greeting, gender and tags the site publishes.";
+    }
     return card;
   }
 
@@ -620,6 +671,7 @@
     fetchPromptFields,
     callPromptRoute,
     collectPromptFields,
+    pickConversationId,
     postJson,
     postForm,
     labelText,

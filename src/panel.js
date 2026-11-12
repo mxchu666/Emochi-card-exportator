@@ -202,6 +202,9 @@
       list.appendChild(row);
     });
     ui.result.appendChild(list);
+    if (card.hint) {
+      ui.result.appendChild(el("div", { class: "jaix-hint", text: card.hint }));
+    }
     ui.exportRow.style.display = "";
     ui.exportCount.textContent = state.included.size + " selected";
     ui.sepBtn.style.display = (card.lorebooks || []).length > 1 ? "" : "none";

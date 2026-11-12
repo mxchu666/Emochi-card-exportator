@@ -595,6 +595,14 @@
   line-height: 1.45;
 }
 
+.jaix-hint {
+  margin: 10px 2px 0;
+  color: var(--jaix-text-faint);
+  font-family: var(--jaix-font-prose);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
 .jaix-selrow {
   position: sticky;
   top: 0;

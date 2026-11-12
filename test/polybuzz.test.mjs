@@ -342,6 +342,62 @@ test("fetchPromptFields asks the two conversation routes when the owner route re
   }
 });
 
+test("pickConversationId digs the id out of whatever init returns", () => {
+  assert.equal(P.pickConversationId({ conversationId: "c1" }), "c1");
+  assert.equal(P.pickConversationId({ data: { chat: { chatId: 7 } } }), "7");
+  assert.equal(P.pickConversationId({ conversationId: "", scene: {} }), "");
+  assert.equal(P.pickConversationId(null), "");
+});
+
+test("fetchPromptFields repeats the config call with the conversation init created", async () => {
+  const bodies = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    const body = init && init.body ? String(init.body) : "";
+    if (u.endsWith("/api/scene/getscenedetail")) {
+      bodies.push(["detail", body]);
+      return new Response(JSON.stringify({ errNo: 210002, errstr: "No permission", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (u.endsWith("/api/conversation/init")) {
+      bodies.push(["init", body]);
+      return new Response(JSON.stringify({ errNo: 0, data: { conversationId: "c-42", scene: {} } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const isChat = body.includes("c-42");
+    bodies.push([isChat ? "config-chat" : "config-scene", body]);
+    return new Response(
+      JSON.stringify(
+        isChat
+          ? { errNo: 0, data: { systemRole: "Creció en Busan.", conversationExample: "{{char}}: No." } }
+          : { errNo: 0, data: { systemRole: "" } },
+      ),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    const prompt = await P.fetchPromptFields("bHJrz");
+    assert.deepEqual(
+      bodies.map((b) => b[0]),
+      ["detail", "config-scene", "init", "config-chat"],
+    );
+    assert.match(bodies[3][1], /conversationId=c-42/);
+    assert.equal(prompt.fields.systemRole, "Creció en Busan.");
+    assert.equal(prompt.fields.conversationExample, "{{char}}: No.");
+    assert.deepEqual(
+      prompt.trace.map((t) => t.route),
+      ["getscenedetail", "getsceneconfig", "init", "getsceneconfig chat"],
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("collectPromptFields keeps the first non-empty value and accepts the alias names", () => {
   const found = P.collectPromptFields({
     scene: { systemRole: "", characterBackground: "Vino del norte." },
