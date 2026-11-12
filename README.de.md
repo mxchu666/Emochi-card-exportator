@@ -261,7 +261,7 @@ Kurzfassung:
 
 | Version | Was kam |
 |---|---|
-| 0.9.0 | Leser für Character.ai und Crushon.ai, Polybuzz-Beispielgespräche, Emochi-Parser-Korrekturen, Emochi Lab, 88 Tests |
+| 0.9.0 | Leser für Character.ai und Crushon.ai, Polybuzz-Beispielgespräche, Emochi-Parser-Korrekturen, Emochi Lab, 89 Tests |
 | 0.8.0 | Umbenennung, Dokumentation in sechs Sprachen, Credit-Abschnitt, Polybuzz-Evidenz neu geschrieben, Issues aktiviert |
 | 0.7.13 | Polybuzz-Personality aus den `Personalidad`-Tags des Erstellers |
 | 0.7.12 | Polybuzz-Szenario aus der Regieanweisung der Begrüßung |

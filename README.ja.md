@@ -256,7 +256,7 @@ Polybuzz は背景も性格フィールドも公開しないため、カード�
 
 | バージョン | 入ったもの |
 |---|---|
-| 0.9.0 | Character.ai と Crushon.ai のリーダー、Polybuzz のサンプル会話、Emochi パーサー修正、Emochi Lab、88テスト |
+| 0.9.0 | Character.ai と Crushon.ai のリーダー、Polybuzz のサンプル会話、Emochi パーサー修正、Emochi Lab、89テスト |
 | 0.8.0 | 改名、6言語ドキュメント、クレジット節、Polybuzz 根拠の書き直し、Issues 有効化 |
 | 0.7.13 | 作者の `Personalidad` タグから Polybuzz の Personality |
 | 0.7.12 | グリーティングのト書きから Polybuzz の Scenario |

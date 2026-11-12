@@ -37,6 +37,10 @@
 
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("jaix:payload", (event) => remember(event && event.detail));
+    // `intercept.js` keeps a backlog because it starts at document_start and this
+    // file starts at document_idle; drain it, then the event channel takes over.
+    const backlog = window.__jaixPayloads;
+    if (Array.isArray(backlog)) backlog.forEach((entry) => remember(entry));
   }
 
   function payloads() {

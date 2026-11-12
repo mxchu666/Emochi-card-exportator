@@ -143,3 +143,11 @@ test("the page event channel hands a payload to the reader", () => {
   const found = H.bestCharacter(H.roots(), ["name", "description", "greeting", "personality"]);
   assert.equal(found.name, "Zed");
 });
+
+test("the backlog left by the page-world script is drained at load", () => {
+  // A fresh window so the earlier payloads do not mask the backlog entry.
+  const fresh = { addEventListener: () => {}, __jaixPayloads: [JSON.stringify({ name: "Bex", description: "Cook.", greeting: "Sit." })] };
+  new Function("window", read("harvest.js"))(fresh);
+  const found = fresh.JAIX.harvest.bestCharacter(fresh.JAIX.harvest.roots(), ["name", "description", "greeting"]);
+  assert.equal(found.name, "Bex");
+});

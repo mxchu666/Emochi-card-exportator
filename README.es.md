@@ -256,7 +256,7 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
-| 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 88 tests |
+| 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 89 tests |
 | 0.8.0 | Renombrado, documentación en seis idiomas, sección de crédito, reescritura de la evidencia de Polybuzz, Issues habilitado |
 | 0.7.13 | Personality de Polybuzz desde las etiquetas `Personalidad` del creador |
 | 0.7.12 | Scenario de Polybuzz desde la dirección escénica del saludo |

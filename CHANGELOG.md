@@ -53,7 +53,7 @@ Three separate causes, all fixed:
 ### Changed
 
 - `manifest.json`: seven content-script blocks, host permissions for `neo.character.ai`, `plus.character.ai` and `characterai.io`.
-- 88 tests.
+- 89 tests.
 
 ### Not verified
 

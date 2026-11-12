@@ -67,6 +67,17 @@
     if (!text || text.length > MAX_BYTES) return;
     if (text[0] !== "{" && text[0] !== "[") return;
     if (!INTERESTING.test(url || "")) return;
+    // The isolated-world collector attaches at document_idle, long after the
+    // first requests go out, so the page keeps a short backlog the collector
+    // drains on load. Without it, an early response is only recoverable by
+    // replaying the call, and the replay needs a token that may not exist yet.
+    try {
+      const buffer = (window.__jaixPayloads = window.__jaixPayloads || []);
+      buffer.push(text);
+      if (buffer.length > 20) buffer.shift();
+    } catch {
+      /* the page froze its own globals */
+    }
     try {
       window.dispatchEvent(new CustomEvent(EVENT, { detail: text }));
     } catch {

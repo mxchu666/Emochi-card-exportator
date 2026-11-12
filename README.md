@@ -187,7 +187,7 @@ A short record, because the shape of the process explains why the limits above a
 6. **Enumerate the API, do not guess it.** The site's JavaScript bundle declares 214 request configs. Every read-only one was called against public bots. This is how the "background is unreachable" conclusion was reached — not by failing once, but by exhausting the surface.
 7. **Prove the negative with a control.** The `ZZZ-123` experiment, run on two accounts, is what turned "we cannot find it" into "it is not there to be found".
 8. **Keep the panel quiet.** A missing creator-private field is the normal case, not an error. The panel shows a footnote, not a banner. Only a genuine failure (signed out, no route answered) gets a message.
-9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 88 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
+9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 89 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
 10. **Write it down.** The developer section below exists so the next person does not have to re-derive it.
 11. **Reuse before writing.** Character.ai and Crushon.ai both only give the record to their own JavaScript, so one mechanism covers both: a page-world sniffer plus a scoring walk over the payloads. One new file each, plus two shared ones, and the exporters were not touched.
 12. **Credit the source of an approach.** The interception pattern comes from [taquanta's exporter](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), and the credit sits at the top of the file and in this README, not only in a commit message.
@@ -261,7 +261,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
-| 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 88 tests |
+| 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 89 tests |
 | 0.8.0 | Renamed, six-language docs, credit section, Polybuzz evidence rewrite, Issues enabled |
 | 0.7.13 | Polybuzz Personality from the creator's `Personalidad` tags |
 | 0.7.12 | Polybuzz Scenario from the greeting's stage direction |
