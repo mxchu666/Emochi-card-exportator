@@ -1,93 +1,215 @@
-# JAI Card Extractor
+# Universal Character Card Exporter
 
-A small browser extension that saves a character card from **JanitorAI** or **Emochi** (plus its lorebook, on JanitorAI) to a file on your computer, so you can back it up or move it to another site.
+**English** · [Español](README.es.md) · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-> Free and open source. If you find it useful and want to support us, check out [inkwell.rip](https://inkwell.rip), the AI roleplay site we build. That's what keeps tools like this coming.
+A browser extension that reads a character from **JanitorAI**, **Emochi** or **Polybuzz** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-It exports to the formats other AI roleplay sites and apps already understand:
+> Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
-- **SillyTavern character card** (`.card.json`): works with SillyTavern, Tavo, Agnai, RisuAI, Inkwell, and most other frontends.
-- **Lorebook** (`.lorebook.json`): just the lorebook entries, on their own.
-- **Plain text** (`.txt`): readable by anyone, good for copy/paste.
-- **JanitorAI JSON** (`.jai.json`): closest to the original.
+---
 
-Everything happens on your own computer, in your own browser, while you're signed in. It does not upload anything, there is no account to make, and there is no tracking. It simply reads the character you're already looking at and saves it.
+## Credit where it is due
 
-## Installing it (about 2 minutes)
+This project is a **fork** of **[Character Card Extractor / JAI Card Extractor](https://github.com/erpocalypse/jai-card-extractor)** by **[erpocalypse](https://github.com/erpocalypse)**. The original extension, the JanitorAI reader, the panel, the exporter pipeline and the card format work all come from there.
 
-You don't need to know how to code. There's nothing to build or compile.
+**If you use, fork, redistribute or build on this, you must credit the original creator and link back to [github.com/erpocalypse/jai-card-extractor](https://github.com/erpocalypse/jai-card-extractor).** That is a condition of this fork, not a request.
 
-1. **Download this project.** Click the green **Code** button near the top of this page, then **Download ZIP**. Unzip it somewhere you'll remember, like your Desktop.
-2. **Open your browser's extensions page.** In Chrome, type `chrome://extensions` in the address bar and press Enter. In Edge, use `edge://extensions`.
-3. **Turn on Developer mode** using the switch in the top-right corner.
-4. Click **Load unpacked**, then select the folder you unzipped (the one that contains the file named `manifest.json`).
+This fork is maintained by **[mxchu666](https://github.com/mxchu666)**. It adds Emochi and Polybuzz support, the multi-site card pipeline, and the documentation you are reading.
 
-That's it. The extension is now installed.
+**How this fork was made.** The code was written with **OpenCode** running **DeepSeek v4.1-flash:free**. Every prompt I supplied to the agent was written in Spanish and I translated all of them into English myself, by hand, before feeding them in. The findings, the probes and the API notes in the developer section are the result of that work, verified against the live sites.
 
-> Tip: If you ever move or delete the folder, the extension stops working. Keep it somewhere permanent.
+---
+
+## What it exports
+
+| Format | File | Read by |
+|---|---|---|
+| SillyTavern character card | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, most frontends |
+| SillyTavern card as PNG | `.card.png` | Same as above, with the card embedded in the image chunk |
+| Lorebook / World Info | `.lorebook.json` | SillyTavern, Tavo |
+| JanitorAI JSON | `.jai.json` | Closest to the original record |
+| Plain text | `.txt` | Anything that reads text |
+
+Everything happens locally. Nothing is uploaded, there is no analytics, and no outside code is loaded.
+
+---
+
+## How the tool actually works
+
+The extension is four small pieces with one job each, and a single rule that holds the whole thing together: **every site reader produces the same card object**.
+
+```
+site page
+   │
+   ├─ src/scraper.js    reads JanitorAI
+   ├─ src/emochi.js     reads Emochi
+   └─ src/polybuzz.js   reads Polybuzz
+           │
+           ▼
+     one card object
+     { name, creator, avatarUrl, gender, tags,
+       fields: { description, personality, scenario,
+                 greeting, altGreetings, exampleDialogue },
+       lorebooks[], scriptRefs[] }
+           │
+           ├─ src/exporters.js  ──▶ .card.json / .card.png / .lorebook.json / .jai.json / .txt
+           └─ src/panel.js      ──▶ the on-page UI: block list, checkboxes, export row
+```
+
+1. **Read.** The reader for the site you are on gathers the character. Each one does it differently, because each site exposes a different surface: JanitorAI has an internal JSON API, Emochi has a Next.js backend with a compiled prompt string, Polybuzz has a server-rendered Nuxt payload plus a REST API.
+2. **Normalise.** The raw record is flattened into the card object above. This is where field names from the other site get translated: Polybuzz's `sceneBrief` becomes `description`, `speechText` becomes `greeting`, `templateIntro` becomes `scenario`. Nothing is invented. If a field is not published, it stays empty.
+3. **Present.** The panel lists every block it found with a checkbox and a preview, so you can drop a jailbreak line or a system prompt that got bundled in. The count at the top (`x/y kept`) tells you exactly what will be written.
+4. **Export.** `toBlocks()` turns the ticked blocks into the target format. The exporter is site-agnostic: it has never heard of Emochi or Polybuzz, it only knows the card object. That is why every site gets all five formats for free.
+5. **Save.** A Blob is created and clicked through an `<a download>`. Nothing crosses the network.
+
+There is one deliberate guard in `toBlocks()`: if a Personality block ends up character-for-character identical to the Description block, it is dropped silently. That situation is almost always a server echoing one field into another, not a creator writing the same paragraph twice.
+
+### Why a browser extension and not a website
+
+Every site here gates at least part of its data behind a signed-in session. A web app would need your cookies; an extension can borrow the session the browser already has, without ever seeing your password. That is the entire reason the tool lives where it does.
+
+---
+
+## Installing it (about two minutes)
+
+You do not need to know how to code. There is nothing to build or compile.
+
+1. **Download this project.** Click the green **Code** button on the GitHub page, then **Download ZIP**. Unzip it somewhere permanent, like your Desktop.
+2. **Open your browser's extensions page.** Chrome: type `chrome://extensions`. Edge: `edge://extensions`.
+3. **Turn on Developer mode** (top-right switch).
+4. Click **Load unpacked** and pick the folder that contains `manifest.json`.
+
+> If you move or delete that folder, the extension stops working. Keep it somewhere permanent.
+
+---
 
 ## Using it
 
-1. Go to [janitorai.com](https://janitorai.com) and open a character's page. Make sure you're signed in. (Some issues may arise, and some lorebooks might not be found if said character has the definitions private.)
-2. Click **Extract card** in the bottom-right corner.
-3. Click **Quick scan**. You don't need to start a chat first.
-   - **Deep scan** also reads every lorebook attached to the character. It makes a few more requests, so it is slower but more complete.
-4. You'll see a list of every part of the character, each with a checkbox. Untick anything you don't want to keep (for example a jailbreak line or a system prompt that got bundled in). **Select all** and **Select none** are there to help.
-5. Click one of the export buttons. Only the ticked parts are saved.
+### JanitorAI
 
-By default the lorebook is bundled into the character card. If a character has **more than one** lorebook (for example a personal one plus a shared world book), a **Separate books** button appears after a deep scan; it saves each lorebook as its own file so a shared world book stays reusable across other characters.
+1. Open a character on [janitorai.com](https://janitorai.com) while signed in.
+2. Click **Extract card** in the bottom-right corner.
+3. **Quick scan** reads the character. **Deep scan** also walks every lorebook attached to it — slower, more complete.
+4. Untick anything you do not want. **Select all** / **Select none** are there for that.
+5. Pick an export format.
+
+If a character has more than one lorebook, a **Separate books** button appears after a deep scan, so a shared world book can be saved as its own reusable file.
 
 ### Emochi
 
-1. Go to [emochi.com](https://emochi.com) and open a character (`emochi.com/character/...`).
-2. Click **Extract card** → **Quick scan**.
-3. Export.
+1. Open a character on [emochi.com](https://emochi.com) (`emochi.com/character/...`).
+2. **Quick scan** reads the public payload: name, tagline/description, welcome message, tags, avatar, creator.
+3. **Deep scan** additionally asks for the creator definition — personality, scenario, example conversations. That route answers only for characters on **your own account**; sign in first.
 
-Emochi only publishes part of a card to everyone: name, tagline/description, the welcome message, tags, avatar and creator. That is what **Quick scan** gives you. **Deep scan** also asks Emochi for the creator definition (personality, scenario, example conversations) — that one only answers for characters on **your own account**, so sign in first if you want it. Nothing is invented to fill the gaps.
-
-One Emochi thing does not map: their characters are largely tag-driven and the persona is generated by their model at chat time, so a lot of cards genuinely have no personality/scenario text stored anywhere.
+Some Emochi characters genuinely have no personality or scenario text stored anywhere, because the site drives them from tags and generates the persona at chat time. That is a property of the character, not a failed read.
 
 ### Polybuzz
 
-1. Go to [polybuzz.ai](https://www.polybuzz.ai) and open a character (`polybuzz.ai/es/character/chat/...`).
+1. Open a character on [polybuzz.ai](https://polybuzz.ai) (`polybuzz.ai/es/character/chat/...`).
 2. Click **Extract card** → **Quick scan**.
 3. Export.
 
-Polybuzz's own creation guide lists seven things a character is made of: name, gender, short introduction, greeting, tags, background introduction, and dialogue style (plus the sample dialogue that teaches the style). The public page publishes five of them - avatar, name, gender, introduction, greeting, tags - and that is what the card carries. The gender travels as a `Gender: Male` line at the top of the description, since no Tavern field holds one, and it can be unticked like any other block.
+A Polybuzz card comes out with what the site publishes:
 
-The other two live on the scene record as `systemRole` (background) and `conversationExample` (the dialogue examples). Polybuzz does not serialise them to anyone but the scene's creator: across 60 public bots sampled from the landing feed, `systemRole` came back empty 60 times and `conversationExample` was absent from the response entirely, while the edit loader answers `210002` for a bot your account does not own. The reader asks all three signed-in routes on every scan - your own bots come back complete - and the card note names each route and the exact code when the server declines, so the panel never guesses.
+| Card field | Polybuzz source |
+|---|---|
+| Description | `sceneBrief` — the short introduction |
+| Greeting | `speechText` — the opening message |
+| Scenario | `templateIntro` when the bot is template-based, otherwise the stage direction the creator wrote at the top of the greeting |
+| Personality | the creator's own **Personalidad** tags (`Frío`, `Celoso`, `Tsundere`…), plus the dialogue style when published |
+| Gender | `sceneGender`, carried as a `Gender: Male/Female/Non-binary` line in the description |
+| Tags, avatar, name, creator | the scene record |
 
-One exception is worth knowing: template-based bots publish `templateIntro`, a structured block ("Identidad: …, Ocupación: …"), and that lands in the card's scenario field.
+---
 
-A Polybuzz greeting is usually where the creator packs the setup (relationship, situation, first line), so a lot of cards read as complete even without the private fields.
+## Polybuzz: the background information cannot be retrieved. Here is why.
 
-## Moving a character to another site
+Polybuzz's creation guide lists seven things a character is made of: name, gender, short introduction, greeting, tags, **background** and **dialogue style** (plus the sample dialogue that teaches the style). A public page publishes five of them. The other two — `systemRole` (the background, labelled *Antecedentes*) and `conversationExample` (the example dialogues) — are **not sent to anyone except the creator of that character**. This is not a missing endpoint and not something this or any extension can work around, because **the data is assembled server-side and never serialised to a non-owner**.
 
-Most sites have an "import" option that reads the **SillyTavern .json** file this extension makes. Open that site's importer, choose the file (or paste its contents), and the character comes across with its lorebook.
+The evidence, in short:
 
-For [Inkwell](https://inkwell.rip) specifically, you can import a character from a URL and skip the need for this tool entirely (it also supports SpicyChat, Chub, and Character.AI). Dropping the `.card.json` in works too.
+- The create form itself renders the field as `Antecedentes (Visto en privado)` — *Antecedentes, privately seen*. It is a creator-only note by design.
+- Every read-only API route the web client knows was called against public bots with a fresh guest session. The only one that even contains the key is `scene/detailguest`, and it returns `""`.
+- The owner route `scene/getscenedetail` answers `210002` for a bot your account does not own. That code is definitive: the server refuses the record.
+- Across all 225 lazy-loaded JavaScript chunks of the site, `systemRole` and `conversationExample` appear in **one** file: the create page. No other page ever asks for them, so no other page can render them.
+- A controlled test settles it: a bot created with the marker `ZZZ-123` in its Antecedentes, then scanned from a second account, never showed the marker. The value does not leave the creator's session.
+- Asking the model to recite its own instructions does not work either. The chat pipeline builds the system prompt server-side and the stream carries only text chunks. The one time a bot was asked for its own life story it confidently invented a childhood it did not have — paraphrased output is not the stored text, and this extension will not pass generation off as retrieval.
+
+**What the extension does instead:** it uses the fields Polybuzz does publish, and it says so in a footnote under the block list. Personality comes from the creator's own tag picks; Scenario comes from the greeting's own opening direction, verbatim; nothing is paraphrased and nothing is invented.
+
+If you own the character, all three signed-in routes are still asked on every scan, and your own bots come back complete.
+
+---
+
+## How this fork was built, start to finish
+
+A short record, because the shape of the process explains why the limits above are trustworthy.
+
+1. **Start with the original tool.** The upstream extension already read JanitorAI. It became the base, and the rule for everything after was: never change the upstream behaviour, only add beside it.
+2. **Add a reader, not a special case.** Emochi was added as `src/emochi.js` filling the same card object, so `exporters.js` and `panel.js` needed no changes at all.
+3. **Find the real payload.** Emochi is a Next.js app on FlowGPT's backend; the useful data sits in a compiled `initPrompt` string on the public prompt object. That string is parsed back into personality, background, scenario and example dialogue.
+4. **Measure, do not assume.** The claim that Emochi publishes a definition for about a third of characters came from sampling three independent live lists (30, 19 and 9 characters) and counting. It is a publish flag (`visibility: true`), not a login gate.
+5. **Add Polybuzz the same way.** Nuxt server-renders the character into the page, so the payload is in the DOM as a devalue array. That array is expanded and searched. A content script cannot see `window.__NUXT__`, so the `<script id="__NUXT_DATA__">` tag is used instead.
+6. **Enumerate the API, do not guess it.** The site's JavaScript bundle declares 214 request configs. Every read-only one was called against public bots. This is how the "background is unreachable" conclusion was reached — not by failing once, but by exhausting the surface.
+7. **Prove the negative with a control.** The `ZZZ-123` experiment, run on two accounts, is what turned "we cannot find it" into "it is not there to be found".
+8. **Keep the panel quiet.** A missing creator-private field is the normal case, not an error. The panel shows a footnote, not a banner. Only a genuine failure (signed out, no route answered) gets a message.
+9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 71 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
+10. **Write it down.** The developer section below exists so the next person does not have to re-derive it.
+
+**This tool is under active development and will keep receiving updates.** New sites get added, broken readers get fixed, and the API notes get corrected when a site changes. If something breaks, it is usually because a site changed its payload shape, and that is fixable.
+
+---
+
+## To-do
+
+- [ ] **Add Character.ai support.**
+- [ ] **Add Saucepan AI support.**
+- [ ] **Add WyvernChat.com support.**
+- [ ] **Priority — Emochi: some bots do not show personality or scenario.** A portion of Emochi characters genuinely store no definition, but the failure rate is higher than the publish-flag measurement predicts. This needs isolating: is it the payload, the parser, or the character?
+- [ ] **Priority — Emochi: example conversations are not being retrieved.** The definition route carries `characterExampleConversation`; it is not reaching the card. This breaks example-dialogue fidelity and has to work before Emochi support can be called finished.
+
+The two Emochi items are prioritised over new site support. A reader that half-works on a supported site is worse than one more site that works fully.
+
+---
+
+## Reporting bugs
+
+Use the **[Issues tab](https://github.com/mxchu666/Universal-Character-Card-Exporter/issues)**. It is enabled. Please include:
+
+- The site and the character URL.
+- Which version you are on — **hover the footer of the export panel and the version appears in the tooltip**.
+- What you expected and what you got. A screenshot of the panel is the most useful single thing you can attach.
+- Any message the panel showed. The panel names the route and the response code when a lookup fails, and that text is exactly what a fix needs.
+
+Feature requests are welcome in the same place.
+
+---
 
 ## Is this allowed?
 
-This is a personal backup tool. It only fetches things you can already see while signed in, and saves them in an open format. It doesn't get around any paywall or unlock anything you couldn't otherwise view.
+This is a personal backup tool. It reads what you can already see while signed in and saves it in an open format. It does not get around a paywall and does not unlock anything you could not otherwise view.
 
-That said, JanitorAI's terms may restrict automated access or bulk downloading. Use it for your own characters and personal backups, credit creators when you re-share their work, and don't hammer the site. How you use it is on you.
+Site terms may still restrict automated access. Use it for your own characters and personal backups, credit creators when you re-share their work, and do not hammer the sites.
 
 ## Privacy
 
-- Scanned character data never leaves your browser. There are no analytics and no outside code.
-- The extension asks for **no special permissions** and only runs on janitorai.com pages you open yourself.
-- Scanning, reviewing, and saving all happen locally in your browser.
+- Scanned character data never leaves your browser. No analytics, no outside code.
+- No special permissions. The extension runs only on the site pages you open.
+- The only network calls it makes are to the site you are already on.
 
-## For developers
+---
 
-The extension uses plain JavaScript with no dependencies or build step. Edit the files in `src/` and reload it from the extensions page. The export and normalization logic is covered by tests:
+## Developer reference (English only)
+
+The extension is plain JavaScript with no dependencies and no build step. Edit `src/`, reload from the extensions page.
 
 ```sh
 node --test
 ```
 
-`src/scraper.js` reads the character from JanitorAI, `src/emochi.js` does the same for Emochi, `src/polybuzz.js` for Polybuzz, `src/exporters.js` converts it, `src/panel.js` and `src/panel.css` are the on-page panel. All three site readers fill the same card shape, so the exporters and the panel never care which site you are on. Pull requests are welcome. Extra export formats and support for other source sites are the obvious next things to add.
+`src/scraper.js` reads JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz. All three fill the same card shape, so exporters and the panel never care which site you are on. `src/exporters.js` converts, `src/panel.js` and `src/panel.css` are the on-page panel, `background.js` is the service worker used for requests a content script cannot make (CORS, forbidden headers).
+
+The rest of this section is the site-by-site API record. It is kept in English because it is reference material, and it is the part most likely to go stale when a site ships a change.
 
 ### Emochi API notes
 
@@ -102,37 +224,36 @@ Emochi is a Next.js app on FlowGPT's backend. The useful bits:
 
 Gotcha 1: never send `credentials: "include"` to the API host. The wildcard `Access-Control-Allow-Origin` is rejected on credentialed requests and the fetch fails even though the server answered 200.
 
-Gotcha 2, the important one: the API sends **no `Access-Control-Allow-Headers`**, so any page-context request that carries `Authorization` dies at the CORS preflight before it leaves the browser. Authenticated reads therefore go through `background.js` (the extension service worker), which is not subject to CORS and can use `host_permissions` to reach the API directly. That is why the manifest asks for `https://emochi-backend-k8s.flowgpt.com/*`.
+Gotcha 2, the important one: the API sends **no `Access-Control-Allow-Headers`**, so any page-context request that carries `Authorization` dies at the CORS preflight before it leaves the browser. Authenticated reads therefore go through `background.js`, which is not subject to CORS and can use `host_permissions` to reach the API directly. That is why the manifest asks for `https://emochi-backend-k8s.flowgpt.com/*`.
 
 ### Polybuzz API notes
 
 Polybuzz is a Nuxt 3 app. The character is server-rendered into the chat page, so no request is needed on a cold load:
 
-- The chat page is **server-rendered**, and the character rides in the Nuxt payload as one object carrying `secretSceneId`, `sceneName`, `sceneAvatarUrl`, `sceneBrief`, `speechText`, `sceneGender`, `sceneTags`, `createUserName`, `systemRole` and `templateIntro` (31 keys). It is the richest public view - it has the greeting, gender and tags, which the JSON API does not return.
-- **The URL slug is not the scene id.** A page loads as `/es/character/chat/bangchan-bLgrZ` while `secretSceneId` is `bLgrZ`, and `/api/scene/profile?secretSceneID=` takes only the bare id (`bangchan-bLgrZ` answers `"scene not exist"`). Both sides are matched by suffix (`<slug>.endsWith("-" + sceneId)`), and the API call uses the id the payload reports, falling back to the slug's last hyphen segment.
-- Nuxt ships the payload twice. Live it is `window.__NUXT__`, and statically it is the `<script id="__NUXT_DATA__">` tag. **A content script gets its own JS context, so `window.__NUXT__` is invisible to it**; the script tag is DOM, so it is readable. That tag holds the payload as a devalue flat array (containers store indexes into one value list, reactive refs are tagged `["ShallowReactive", 12]`), which the reader expands before searching it.
-- Because the app is client-routed, the DOM tag can still hold the previous page's payload (or a stripped listing card) after a soft navigation. Every scene match is verified against the `secretSceneId` in the URL, and the richest match wins. When the tag has no greeting, the reader fetches the character's own page HTML through the service worker and parses the payload out of that instead.
-- `GET https://c6-api.polybuzz.ai/api/scene/profile?secretSceneID=<slug>` - the JSON fallback for name, avatar, cover, brief, tags, gender and creator. It **requires a `cuid` request header** and answers `{"errNo":310000,"errMsg":"User cuid not param"}` without one, `300000 "User Needs to get cuid again"` for a stale value. The live value is the `poly_cuid` cookie, e.g. `tourist_<uuid>_<ms>`. It carries no greeting, so a card built from it alone is flagged as a failed read.
-- **Every c6-api call needs a `Referer` on the polybuzz host.** Without one the API answers `{"errNo":5002,"errMsg":"system busy now"}` to every endpoint, `/api/scene/profile` included - it is a bot guard, not a real error. A service worker cannot set `Referer` (forbidden header), which is why the API calls now go from the page context, where the browser fills `Origin` and `Referer` in automatically; the preflight passes (`access-control-allow-origin` echoes the site, `Cuid` and `Content-type` are allowed, `access-control-allow-credentials: true`). The worker stays as the fallback and as the transport for the page HTML.
-- The API surface is not small; the bundles declare 215 routes. The ones that matter for a card: `scene/profile` (guest, no greeting), `scene/profileguest`, `scene/detailguest`, `scene/search`, `scene/getscenedetail` (account only), `conversation/getsceneconfig`, `conversation/init`. Unknown paths answer a 404 HTML page rather than JSON, which is why the wrong guesses look identical.
-- There is **no export endpoint**. Polybuzz only imports character cards (`polybuzz.gitbook.io/upload-character`), and the fields it asks for on import are the same seven its creation guide lists: name, gender, short introduction, greeting, tags, background introduction, dialogue style.
+- The chat page is **server-rendered**, and the character rides in the Nuxt payload as one object carrying `secretSceneId`, `sceneName`, `sceneAvatarUrl`, `sceneBrief`, `speechText`, `sceneGender`, `sceneTags`, `createUserName`, `systemRole` and `templateIntro` (31 keys). It is the richest public view — it has the greeting, gender and tags, which the JSON API does not return.
+- **The URL slug is not the scene id.** A page loads as `/es/character/chat/bangchan-bLgrZ` while `secretSceneId` is `bLgrZ`, and `/api/scene/profile?secretSceneID=` takes only the bare id (`bangchan-bLgrZ` answers `"scene not exist"`). Both sides are matched by suffix, and the API call uses the id the payload reports, falling back to the slug's last hyphen segment.
+- Nuxt ships the payload twice. Live it is `window.__NUXT__`, statically it is the `<script id="__NUXT_DATA__">` tag. **A content script gets its own JS context, so `window.__NUXT__` is invisible to it**; the script tag is DOM, so it is readable. That tag holds the payload as a devalue flat array (containers store indexes into one value list, reactive refs are tagged `["ShallowReactive", 12]`), which the reader expands before searching it.
+- Because the app is client-routed, the DOM tag can still hold the previous page's payload, or a stripped listing card, after a soft navigation. Every scene match is verified against the `secretSceneId` in the URL, and the richest match wins. When the tag has no greeting, the reader fetches the character's own page HTML through the service worker and parses the payload out of that instead.
+- `GET https://c6-api.polybuzz.ai/api/scene/profile?secretSceneID=<id>` — the JSON fallback for name, avatar, cover, brief, tags, gender and creator. It **requires a `cuid` request header** and answers `{"errNo":310000}` without one, `300000` for a stale value. The live value is the `poly_cuid` cookie, e.g. `tourist_<uuid>_<ms>`. It carries no greeting, so a card built from it alone is flagged as a failed read.
+- **Every c6-api call needs a `Referer` on the polybuzz host.** Without one the API answers `{"errNo":5002,"errMsg":"system busy now"}` to every endpoint, `/api/scene/profile` included — it is a bot guard, not a real error. A service worker cannot set `Referer` (forbidden header), which is why the API calls go from the page context, where the browser fills `Origin` and `Referer` in automatically. The worker stays as the fallback and as the transport for the page HTML.
+- The API surface is not small: the bundle declares 214 routes. The ones that matter for a card: `scene/profile` (guest, no greeting), `scene/profileguest`, `scene/detailguest`, `scene/search`, `scene/getscenedetail` (account only), `conversation/getsceneconfig`, `conversation/init`.
+- There is **no export endpoint**. Polybuzz only imports character cards (`polybuzz.gitbook.io/upload-character`), and the fields it asks for on import are the same seven its creation guide lists.
 - `scene/detailguest` (POST JSON `{secretSceneId}`) returns the same 31-key scene as the server render, greeting included, and needs nothing but a fresh `cuid`. It is the cleanest non-DOM read of a public bot.
-- **Background and dialogue examples are never published.** The three field names only exist in the create/edit bundle: `systemRole` (background), `conversationExample` (the dialogue examples) and `dialogueStyle` (the style label). 60 public bots sampled from the landing feed (fresh cuid every 12 calls, zero errors): `systemRole` non-empty **0/60**, `conversationExample` **absent from the response entirely**, `chatSceneInformation` `null` on all 60. `templateIntro` is the exception - the 3 template-based bots in the sample publish it, and the reader maps it to `scenario`, so a template bot's background does reach the card. There is no UI surface that renders the background anywhere on the site, so nothing can be scraped from the page either.
-- **The editor says it out loud.** In the create form the label is `character_background` ("Antecedentes", "Background") and it renders with `character_background_privately_seen` in brackets - "Visto en privado", "Privately seen". The field is a creator-only note by design, not a field the serialiser forgot.
-- **Every route the web client knows was enumerated.** The runtime chunk `Bus_Kiy7.js` declares 214 `smApi*RequestConfig` objects (217 path strings). All 70 read-only ones were called against a public bot with a fresh `cuid` and a polybuzz `Referer`: scene detail guest, profile, profileguest, comicSceneDetail, search, sug, getListBySuid, getRecListByScene, similarSceneList, topSceneList, getSpecialSceneList, comments, moments, member memory, getSceneConfig, `sovpreview`. Not one returned `systemRole` or `conversationExample`, non-empty or empty. `sovpreview` answers `120001 param error` for every body shape and is not referenced by any UI chunk, so it is a dead app route, not a hidden prompt preview. The remaining routes are writes (add, editscene, deletescene, comment submit, gifts, payments) or need the signed-in account.
-- The account route is `POST /api/scene/getscenedetail` with JSON `{secretSceneId}`, which is what the edit page calls to fill its form (`Ve({secretSceneId})` in the create bundle). It answers `{"errNo":120018,"errMsg":"User Needs to login again"}` without a session, and the site authenticates with `withCredentials` (cookies), not an `Authorization` header, so the reader sends it from the page context with `credentials: "include"`. **It is owner-only:** for anyone else's bot it answers `{"errNo":210002}` and the site's own edit page responds by printing the server string and returning to the character list, which is the same conclusion. Reaching 210002 is definitive proof that Polybuzz does not serve the background text or the dialogue examples to a non-owner.
-- Two conversation routes are asked after it, because neither is owner-scoped and both run for any signed-in chatter: `POST /api/conversation/getsceneconfig` and `POST /api/conversation/init`, both **form-encoded** (`requestBodyType: form` in the bundle). They are the chat config and the chat bootstrap. **Live result: the background slot comes back filled with the intro text.** Five signed-in scans of bots the account does not own all produced a `systemRole` that was character-for-character the `sceneBrief` - which is how an empty background is rendered by the server, not a second field that happens to match. The reader treats an exact echo of the intro as *no background* and produces no personality block.
-- `getsceneconfig` is named for a conversation, not a scene, so handing it a scene id can return the defaults compiled from the short intro. The reader therefore chains: `init` first, dig any `conversationId` / `chatId` / `sessionId` out of its answer, then call `getsceneconfig` again with that id. Four calls at worst, and the trace names each one. `init` creates a conversation in the account, one per scan, which is the same request the site makes when a chat is opened.
-- Every route keeps its own answer instead of the first non-empty one. A compiled fallback that repeats the intro would otherwise shadow the creator's real text from a later route; the first candidate that differs from the description wins, and only when every candidate is the intro is the field treated as absent.
-- **The web client never reads the background.** Across all 225 lazy chunks, the string `systemRole` appears in exactly one file - `_W0Z7Q0K.js`, the create page - and `conversationExample` in the same one. `chatSceneInformation` appears in none. No non-owner surface can render a field the client never asks for.
-- **Surfaces probed for a way around it, all negative:** every read-only `/api/scene/*` route exists 18 of them, all probed - `detailguest` is the only one that even contains the key, and it is blank; the other API shard named in the site config (`api.polybuzz.ai`) returns the identical 31-key record; an Android/iOS `User-Agent` plus `app-version` / `platform` / `device-id` headers change nothing; `/profile/<suid>` (82 KB, 265 key names) carries no prompt fields; `scene/getListBySuid` with the real creator suid returns 46 keys and no prompt fields; `user/detailBySuid` returns nickname and avatar only; `comic/*` is an unrelated numeric-id feature; `audit/textcheck` is a write-only moderation call. The create form's own label is the answer: the field is `Antecedentes (Visto en privado)`, and a bot created with `ZZZ-123` in that field scanned from a second account confirms it - the marker never leaves the creator's session.
-- A card with no background is the normal outcome, not a failed read, so the panel shows no error. A one-line footnote under the block list says why the field is missing instead.
-- **Personality comes from the creator's own tag choices.** Polybuzz files every tag under one of four parents - `Historia`, `Origen del personaje`, `Identidad`, `Personalidad` - and the last one is 41 temperament words the creator picked (`Frío`, `Dominante`, `Posesivo`, `Lengua afilada`, `Tsundere`…). `POST /api/scene/getTagByParam` publishes that tree to a guest, so the reader fetches it once per page (cached), joins the scene's tags against the `Personalidad` branch, and writes the matches into the Personality field. Genre, origin and identity tags (`Romance`, `OC`, `Estudiante`, `Mafia`) stay out of it and live in the card's tag list. Measured across 10 live bots: 10/10 produced a real Personality block. A genuine `systemRole` still outranks the tags when one exists.
-- **The one thing the reader can still recover without inventing a word:** the greeting usually opens with a stage direction (`*Bangchan es tu esposo*`, `*Mei Lin te mira desde la puerta de la cocina…*`). That block is the creator's premise and is promoted to Scenario verbatim when the record carries no `templateIntro`, so the card leaves the exporter with a scenario instead of an empty field. Nothing is paraphrased, generated, or attributed to the creator's background.
-- The detail record uses its own field names: `prologue` for the greeting (a string or `{speechText}`), `brief` for the short intro, `dialogueStyle` as `{dialogue:[...]}` rather than the create form's string, plus `systemRole` and `conversationExample` unchanged. All shapes are flattened by the reader.
-- **The model cannot be used as a source either.** Asked to repeat its own opening message word for word - a 1515-character greeting it certainly has in context - the bot produced a new, invented morning scene instead. Asked for its life story, a Korean idol bot called Bangchan answered as "Dafne, born in a small town in interior Mexico, daughter of farmers". The prompt fields are not reachable by asking; whatever comes back is generated, not recalled.
-- The chat pipeline builds the system prompt **server-side**. `conversation/getsceneconfig` is exported by the bundle but imported by nothing, and a full guest stream (`msgbystreamasguestdelivery`, NDJSON) carries exactly two line shapes - `{i,c}` text chunks and one metadata tail with no prompt, no scene fields and no echo. Asking the bot to print its instructions is answered in character, so that route produces paraphrase, not the stored text.
+- **Background and dialogue examples are never published.** The three field names only exist in the create/edit bundle: `systemRole` (background), `conversationExample` (the dialogue examples) and `dialogueStyle` (the style label). 60 public bots sampled from the landing feed (fresh cuid every 12 calls, zero errors): `systemRole` non-empty **0/60**, `conversationExample` **absent from the response entirely**, `chatSceneInformation` `null` on all 60. `templateIntro` is the exception — template-based bots publish it, and the reader maps it to `scenario`.
+- **The editor says it out loud.** In the create form the label is `character_background` and it renders with `character_background_privately_seen` in brackets — "Visto en privado", "Privately seen". The field is a creator-only note by design, not a field the serialiser forgot.
+- **Every route the web client knows was enumerated.** `Bus_Kiy7.js` declares 214 `smApi*RequestConfig` objects (217 path strings). All 70 read-only ones were called against a public bot with a fresh `cuid` and a polybuzz `Referer`. Not one returned `systemRole` or `conversationExample`, non-empty or empty. `sovpreview` answers `120001 param error` for every body shape and is not referenced by any UI chunk, so it is a dead app route, not a hidden prompt preview.
+- The account route is `POST /api/scene/getscenedetail` with JSON `{secretSceneId}`, which is what the edit page calls to fill its form. It answers `120018` without a session, and the site authenticates with cookies, not an `Authorization` header, so the reader sends it from the page context with `credentials: "include"`. **It is owner-only:** for anyone else's bot it answers `210002`, and the site's own edit page responds by printing the server string and returning to the character list. Reaching `210002` is definitive proof that Polybuzz does not serve the background or the dialogue examples to a non-owner.
+- Two conversation routes are asked after it, because neither is owner-scoped: `POST /api/conversation/getsceneconfig` and `POST /api/conversation/init`, both form-encoded. **Live result: the background slot comes back filled with the intro text.** Five signed-in scans of bots the account does not own all produced a `systemRole` character-for-character equal to `sceneBrief` — that is how an empty background is rendered by the server, not a second field that happens to match.
+- `getsceneconfig` is named for a conversation, not a scene, so handing it a scene id can return defaults compiled from the short intro. The reader therefore chains: `init` first, dig any `conversationId` / `chatId` / `sessionId` out of its answer, then call `getsceneconfig` again with that id. Four calls at worst, and the trace names each one.
+- Every route keeps its own answer instead of the first non-empty one. A compiled fallback that repeats the intro would otherwise shadow the creator's real text from a later route; the first candidate that differs from the description wins.
+- **The web client never reads the background.** Across all 225 lazy chunks, `systemRole` appears in exactly one file — `_W0Z7Q0K.js`, the create page — and `conversationExample` in the same one. `chatSceneInformation` appears in none.
+- **Surfaces probed for a way around it, all negative:** all 18 read-only `/api/scene/*` routes, the second API shard named in the site config (`api.polybuzz.ai`), Android/iOS `User-Agent` plus `app-version` / `platform` / `device-id` headers, `/profile/<suid>` (82 KB, 265 key names), `scene/getListBySuid` with the real creator suid, `user/detailBySuid`, `comic/*`, and `audit/textcheck` (a write-only moderation call). None carried the fields.
+- **Personality comes from the creator's own tag choices.** Polybuzz files every tag under one of four parents — `Historia`, `Origen del personaje`, `Identidad`, `Personalidad` — and the last one is 41 temperament words the creator picked. `POST /api/scene/getTagByParam` publishes that tree to a guest, so the reader fetches it once per page (cached), joins the scene's tags against the `Personalidad` branch, and writes the matches into Personality. Genre, origin and identity tags stay in the card's tag list. 10/10 live bots produced a real Personality block.
+- **Scenario from the greeting.** The greeting usually opens with a stage direction (`*Bangchan es tu esposo*`). That block is the creator's premise and is promoted to Scenario verbatim when the record carries no `templateIntro`. Nothing is paraphrased.
+- **The model cannot be used as a source either.** Asked to repeat its own opening message word for word — a 1515-character greeting it certainly has in context — the bot produced a new, invented scene instead. Asked for its life story, a Korean idol bot answered as "Dafne, born in a small town in interior Mexico, daughter of farmers". The prompt fields are not reachable by asking.
+- The chat pipeline builds the system prompt **server-side**. A full guest stream (`msgbystreamasguestdelivery`, NDJSON) carries exactly two line shapes — `{i,c}` text chunks and one metadata tail with no prompt, no scene fields and no echo.
 
+---
 
 ## License
 
