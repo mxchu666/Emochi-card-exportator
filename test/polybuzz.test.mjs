@@ -342,6 +342,22 @@ test("fetchPromptFields asks the two conversation routes when the owner route re
   }
 });
 
+test("a real background outranks a route that echoed the intro", () => {
+  const card = P.normalizeScene(SCENE, null, null, {
+    fields: { systemRole: SCENE.sceneBrief },
+    candidates: {
+      systemRole: [
+        { route: "getsceneconfig", value: SCENE.sceneBrief },
+        { route: "getsceneconfig chat", value: "Creció en Busan y odia las despedidas." },
+      ],
+    },
+    trace: [{ route: "getsceneconfig", status: "ok" }],
+  });
+  assert.equal(card.fields.personality, "Creció en Busan y odia las despedidas.");
+  assert.equal(card.note, undefined);
+  assert.equal(card.hint, undefined);
+});
+
 test("pickConversationId digs the id out of whatever init returns", () => {
   assert.equal(P.pickConversationId({ conversationId: "c1" }), "c1");
   assert.equal(P.pickConversationId({ data: { chat: { chatId: 7 } } }), "7");

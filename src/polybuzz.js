@@ -460,6 +460,12 @@
     const fields = {};
     let detail = null;
     let conversationId = "";
+    // Every route keeps its own answer. "First non-empty wins" is exactly the bug
+    // that hides a real background behind a compiled fallback: `getsceneconfig`
+    // handed a scene id answers with the intro text, and `init` may answer with
+    // the creator's own text. Keeping the candidates lets the caller prefer the
+    // one that is not just the description echoed back.
+    const candidates = { systemRole: [], conversationExample: [] };
     const take = (result) => {
       trace.push({
         route: result.route,
@@ -469,6 +475,7 @@
         fields: Object.keys(result.fields),
       });
       for (const [key, value] of Object.entries(result.fields)) {
+        if (candidates[key] && typeof value === "string") candidates[key].push({ route: result.route, value });
         if (fields[key] === undefined) fields[key] = value;
       }
       return Boolean(fields.systemRole && fields.conversationExample);
@@ -478,7 +485,7 @@
       const result = await callPromptRoute(route, scenePayload(id));
       if (route.key === "detail") detail = result;
       if (route.key === "init") conversationId = pickConversationId(result.data);
-      if (take(result)) return { detail, fields, trace };
+      if (take(result)) return { detail, fields, candidates, trace };
     }
 
     if (conversationId) {
@@ -488,7 +495,7 @@
       );
       take(result);
     }
-    return { detail, fields, trace };
+    return { detail, fields, candidates, trace };
   }
 
   // 1 = male is confirmed on every male bot sampled; 2/3 follow the site's
@@ -518,16 +525,27 @@
     // Their records use `prologue` and `brief` for the fields the chat page calls
     // `speechText` and `sceneBrief`.
     const description = s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief) || s(o.brief);
-    // An empty background is not sent as an empty string: the chat config fills
-    // the slot with the intro text, so an exact echo of the intro is the absence
-    // of a background, not a copy of one.
-    const echoed =
-      s(c.systemRole) ||
-      s(c.characterBackground) ||
-      s(o.systemRole) ||
-      s(a.systemRole) ||
-      s(p.systemRole);
-    const background = echoed === description ? "" : echoed;
+    // Every route that answered keeps its own value. A fallback that repeats the
+    // intro must not outrank a real background from a later route, so the first
+    // candidate that differs from the description wins; if every candidate is the
+    // intro, the field is absent and no personality block is built from it.
+    const candidateValues = (key) =>
+      config && config.candidates && Array.isArray(config.candidates[key])
+        ? config.candidates[key].map((entry) => s(entry.value)).filter(Boolean)
+        : [];
+    const pick = (values) => {
+      const list = values.filter(Boolean);
+      return list.find((value) => value !== description) || "";
+    };
+
+    const background = pick([
+      s(c.systemRole),
+      s(c.characterBackground),
+      ...candidateValues("systemRole"),
+      s(o.systemRole),
+      s(a.systemRole),
+      s(p.systemRole),
+    ]);
     const setting = s(a.templateIntro) || s(o.templateIntro) || s(c.templateIntro);
     // The chat config names its own fields, so the example text can arrive under
     // any of the names the create form or the compiled prompt uses.
@@ -536,6 +554,7 @@
       s(c.characterExampleConversation) ||
       s(c.exampleDialogue) ||
       s(c.exampleConversation) ||
+      candidateValues("conversationExample")[0] ||
       s(o.conversationExample) ||
       s(a.conversationExample);
     const style =
