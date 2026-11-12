@@ -498,6 +498,18 @@
     return { detail, fields, candidates, trace };
   }
 
+  // Polybuzz never publishes the background, and the intro is often one line
+  // ("Tú y Hermione son amigos"). The greeting, though, usually opens with the
+  // premise in stage direction. Lifting that block verbatim gives the card a
+  // scenario and a usable description without inventing a word.
+  function premiseBlock(text) {
+    const t = s(text);
+    if (!t) return "";
+    const m = t.match(/^\s*(\*\*[\s\S]*?\*\*|\*[^*\n][\s\S]*?\*)/);
+    const block = m ? m[1].replace(/^\*+|\*+$/g, "").replace(/\s+/g, " ").trim() : "";
+    return block.length >= 12 && block.length <= 600 ? block : "";
+  }
+
   // 1 = male is confirmed on every male bot sampled; 2/3 follow the site's
   // "Masculino / Femenino / No binario" tab order.
   const GENDERS = { 1: "Male", 2: "Female", 3: "Non-binary" };
@@ -563,6 +575,11 @@
       labelText(o.dialogueStyle) ||
       labelText(a.dialogueStyle);
     const traits = labelText(c.personalityLabel) || labelText(o.personalityLabel);
+    const greeting = s(a.speechText) || prologueText(o.prologue) || prologueText(c.prologue);
+    // The scenario is empty for every non-template bot. The premise the creator
+    // wrote into the greeting fills it verbatim, which is the one field the card
+    // can still gain without inventing a word.
+    const premise = setting ? "" : premiseBlock(greeting);
 
     const card = {
       id,
@@ -577,8 +594,8 @@
         personality: [background, traits ? "Personality: " + traits : "", style ? "Dialogue style: " + style : ""]
           .filter(Boolean)
           .join("\n\n"),
-        scenario: setting,
-        greeting: s(a.speechText) || prologueText(o.prologue) || prologueText(c.prologue),
+        scenario: setting || premise,
+        greeting,
         altGreetings: [],
         exampleDialogue: examples,
       },
@@ -619,7 +636,10 @@
     // user expects five needs a reason, and the reason is the site's, not a bug.
     if (!background && s(owner && owner.status) !== "login") {
       card.hint =
-        "Polybuzz keeps the background (Antecedentes) private to its creator, so this card carries the intro, greeting, gender and tags the site publishes.";
+        "Polybuzz keeps the background (Antecedentes) private to its creator." +
+        (premise
+          ? " Scenario is the opening direction from the creator's own greeting, verbatim."
+          : " This card carries the intro, greeting, gender and tags the site publishes.");
     }
     return card;
   }
@@ -694,6 +714,7 @@
     postJson,
     postForm,
     labelText,
+    premiseBlock,
     prologueText,
     normalizeScene,
     decodeGender,

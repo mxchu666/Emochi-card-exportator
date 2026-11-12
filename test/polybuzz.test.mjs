@@ -41,10 +41,19 @@ test("normalizeScene maps a Polybuzz character onto the card shape", () => {
   assert.equal(card.fields.description, "Ay, amor, no me veas así");
   assert.equal(card.fields.greeting, SCENE.speechText);
   assert.equal(card.fields.personality, "");
-  assert.equal(card.fields.scenario, "");
+  assert.equal(card.fields.scenario, "Bangchan es tu esposo");
   assert.equal(card.fields.exampleDialogue, "");
   assert.deepEqual(card.fields.altGreetings, []);
   assert.equal(card.sourceLabel, "Polybuzz card");
+});
+
+test("premiseBlock lifts the opening stage direction and nothing else", () => {
+  assert.equal(P.premiseBlock("*Bangchan es tu esposo*\n\nBangchan: hola"), "Bangchan es tu esposo");
+  assert.equal(P.premiseBlock("**Sala de estar, 3 AM.**\n\nHola."), "Sala de estar, 3 AM.");
+  assert.equal(P.premiseBlock("Hola, ¿cómo estás?"), "");
+  assert.equal(P.premiseBlock("*corto*"), "");
+  assert.equal(P.premiseBlock(""), "");
+  assert.equal(P.premiseBlock(null), "");
 });
 
 test("normalizeScene falls back to the profile row for name, avatar and creator", () => {
