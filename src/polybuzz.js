@@ -345,7 +345,11 @@
   // tree and takes the first non-empty string per field.
   const PROMPT_KEYS = [
     "systemRole",
+    "characterBackground",
     "conversationExample",
+    "characterExampleConversation",
+    "exampleDialogue",
+    "exampleConversation",
     "dialogueStyle",
     "dialogueStyleObj",
     "templateIntro",
@@ -469,9 +473,22 @@
     // the first two, so whatever the account endpoints returned fills the gap.
     // Their records use `prologue` and `brief` for the fields the chat page calls
     // `speechText` and `sceneBrief`.
-    const background = s(c.systemRole) || s(o.systemRole) || s(a.systemRole) || s(p.systemRole);
+    const background =
+      s(c.systemRole) ||
+      s(c.characterBackground) ||
+      s(o.systemRole) ||
+      s(a.systemRole) ||
+      s(p.systemRole);
     const setting = s(a.templateIntro) || s(o.templateIntro) || s(c.templateIntro);
-    const examples = s(c.conversationExample) || s(o.conversationExample) || s(a.conversationExample);
+    // The chat config names its own fields, so the example text can arrive under
+    // any of the names the create form or the compiled prompt uses.
+    const examples =
+      s(c.conversationExample) ||
+      s(c.characterExampleConversation) ||
+      s(c.exampleDialogue) ||
+      s(c.exampleConversation) ||
+      s(o.conversationExample) ||
+      s(a.conversationExample);
     const style =
       labelText(c.dialogueStyle) ||
       labelText(c.dialogueStyleObj) ||

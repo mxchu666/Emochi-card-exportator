@@ -63,25 +63,18 @@
     // creator typed the same text in both fields or the site derives one from the
     // other. Exported as-is, the same paragraph lands in both Tavern fields and
     // every prompt carries it twice. A personality paragraph the description
-    // already holds is the duplicate, so it goes.
+    // already holds is the duplicate, so it goes, silently: nothing was lost.
     // shortcut: exact paragraph matches only; a partial echo is left alone until a
     // source is seen doing it.
     const norm = (v) => String(v).toLowerCase().replace(/\s+/g, " ").trim();
     const described = new Set(
       blocks.filter((b) => b.kind === "field" && b.field === "description").map((b) => norm(b.text)),
     );
-    let repeated = 0;
     for (let i = blocks.length - 1; i >= 0; i -= 1) {
       const b = blocks[i];
       if (b.kind === "field" && b.field === "personality" && described.has(norm(b.text))) {
         blocks.splice(i, 1);
-        repeated += 1;
       }
-    }
-    if (repeated) {
-      const line =
-        "This source returned the same text for the personality and the description, so the duplicate personality block was dropped.";
-      card.note = card.note ? (card.note.includes(line) ? card.note : card.note + " " + line) : line;
     }
 
     (card.lorebooks || []).forEach((book, bi) => {

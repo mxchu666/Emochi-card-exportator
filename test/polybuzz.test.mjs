@@ -327,6 +327,16 @@ test("fetchPromptFields asks the two conversation routes when the owner route re
   }
 });
 
+test("collectPromptFields keeps the first non-empty value and accepts the alias names", () => {
+  const found = P.collectPromptFields({
+    scene: { systemRole: "", characterBackground: "Vino del norte." },
+    config: { exampleConversation: "{{char}}: hola", dialogueStyle: { dialogue: ["breve"] } },
+  });
+  assert.equal(found.characterBackground, "Vino del norte.");
+  assert.equal(found.exampleConversation, "{{char}}: hola");
+  assert.deepEqual(found.dialogueStyle, { dialogue: ["breve"] });
+});
+
 test("fetchOwnerScene treats the site guard answer as an error, not as an empty scene", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () =>

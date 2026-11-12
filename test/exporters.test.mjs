@@ -117,17 +117,18 @@ test("slug is filesystem-safe", () => {
   assert.equal(X.slug(""), "character");
 });
 
-test("a personality that repeats the description is dropped and noted", () => {
+test("a personality that repeats the description is dropped", () => {
   const card = sampleCard();
   card.fields.description = "🖤 ¿Dónde estás?";
   card.fields.personality = "🖤 ¿Dónde estás?";
   const blocks = X.toBlocks(card);
   assert.equal(blocks.filter((b) => b.field === "personality").length, 0);
   assert.equal(blocks.filter((b) => b.field === "description").length, 1);
-  assert.match(card.note, /duplicate personality block was dropped/);
-  // A second render must not stack the same sentence on the note.
-  X.toBlocks(card);
-  assert.equal(card.note.match(/duplicate personality block was dropped/g).length, 1);
+  // The drop is silent; nothing was lost, so the panel has no error to show.
+  assert.equal(card.note, undefined);
+  const out = X.rebuild(card, blocks, null);
+  assert.equal(out.personality, "");
+  assert.equal(out.description, "🖤 ¿Dónde estás?");
 });
 
 test("only the duplicated paragraph is dropped from a mixed personality", () => {
