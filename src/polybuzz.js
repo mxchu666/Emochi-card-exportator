@@ -452,6 +452,78 @@
     return callPromptRoute(PROMPT_ROUTES[1], scenePayload(id));
   }
 
+  // Polybuzz's sample dialogue is an array of exchanges, not a list of turns:
+  // the create form keeps `dialogueStyleObj` as `[{ user, ai }]` and the detail
+  // record echoes it back as `dialogueStyle.dialogue`. The editor shows one row
+  // per field, the avatar row is `user` and the bare row is `ai`. The string
+  // fallback is the same data flattened as `user;ai` per line. Everything ends up
+  // as {{user}}/{{char}} lines, which is the only grammar a card understands.
+  function pairTurns(text) {
+    return s(text)
+      .split(/\n+/)
+      .map((line) => {
+        const raw = line.trim();
+        if (!raw) return "";
+        const cut = raw.indexOf(";");
+        if (cut < 0) return "";
+        const mine = raw.slice(0, cut).trim();
+        const theirs = raw.slice(cut + 1).trim();
+        return [
+          mine ? "{{user}}: " + mine : "",
+          theirs ? "{{char}}: " + theirs : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  function parseDialogueStyle(value) {
+    if (typeof value === "string") return "";
+    const list = Array.isArray(value)
+      ? value
+      : value && typeof value === "object" && Array.isArray(value.dialogue)
+        ? value.dialogue
+        : null;
+    if (!list) return "";
+    return list
+      .map((turn) => {
+        if (!turn || typeof turn !== "object") return "";
+        const mine = s(turn.user) || s(turn.human) || s(turn.question);
+        const theirs = s(turn.ai) || s(turn.char) || s(turn.assistant) || s(turn.answer);
+        if (!mine && !theirs) {
+          const content = s(turn.content) || s(turn.text);
+          return content ? "{{char}}: " + content : "";
+        }
+        return [
+          mine ? "{{user}}: " + mine : "",
+          theirs ? "{{char}}: " + theirs : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  // `conversationExample` is the same dialogue flattened to text: one exchange per
+  // line, `user;ai`. Text that already names its speakers is left alone.
+  function exampleString(value) {
+    const text = s(value);
+    if (!text) return "";
+    if (/\{\{\s*(user|char)\s*\}\}/i.test(text)) return text;
+    return pairTurns(text) || text;
+  }
+
+  // A plain string under `dialogueStyle` is the style label; an object holding
+  // turn-shaped entries is the sample dialogue. Anything else in that slot is
+  // read as a label, which is what the detail record used to return.
+  function styleOf(value) {
+    if (typeof value === "string") return s(value);
+    return parseDialogueStyle(value) ? "" : labelText(value);
+  }
+
   // Every route is asked until one returns both prompt fields, so a card that
   // Polybuzz does publish comes back in one try and a card it withholds costs
   // four. The trace names the endpoint and the code on every answer.
@@ -591,20 +663,22 @@
     ]);
     const setting = s(a.templateIntro) || s(o.templateIntro) || s(c.templateIntro);
     // The chat config names its own fields, so the example text can arrive under
-    // any of the names the create form or the compiled prompt uses.
+    // any of the names the create form or the compiled prompt uses. The dialogue
+    // array carries the creator's own exchanges, so it outranks the flat string.
     const examples =
-      s(c.conversationExample) ||
-      s(c.characterExampleConversation) ||
-      s(c.exampleDialogue) ||
-      s(c.exampleConversation) ||
-      candidateValues("conversationExample")[0] ||
-      s(o.conversationExample) ||
-      s(a.conversationExample);
+      parseDialogueStyle(c.dialogueStyle) ||
+      parseDialogueStyle(o.dialogueStyle) ||
+      parseDialogueStyle(a.dialogueStyle) ||
+      parseDialogueStyle(c.dialogueStyleObj) ||
+      exampleString(c.conversationExample) ||
+      exampleString(candidateValues("conversationExample")[0]) ||
+      exampleString(o.conversationExample) ||
+      exampleString(a.conversationExample);
     const style =
-      labelText(c.dialogueStyle) ||
-      labelText(c.dialogueStyleObj) ||
-      labelText(o.dialogueStyle) ||
-      labelText(a.dialogueStyle);
+      styleOf(c.dialogueStyle) ||
+      styleOf(o.dialogueStyle) ||
+      styleOf(a.dialogueStyle) ||
+      styleOf(c.dialogueStyleObj);
     const traits = labelText(c.personalityLabel) || labelText(o.personalityLabel);
     const greeting = s(a.speechText) || prologueText(o.prologue) || prologueText(c.prologue);
     // The scenario is empty for every non-template bot. The premise the creator
@@ -772,6 +846,10 @@
     premiseBlock,
     personalityTagNames,
     fetchTraitTags,
+    parseDialogueStyle,
+    exampleString,
+    styleOf,
+    pairTurns,
     prologueText,
     normalizeScene,
     decodeGender,

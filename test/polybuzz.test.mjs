@@ -47,6 +47,42 @@ test("normalizeScene maps a Polybuzz character onto the card shape", () => {
   assert.equal(card.sourceLabel, "Polybuzz card");
 });
 
+test("parseDialogueStyle turns Polybuzz's {user, ai} exchanges into card lines", () => {
+  const pairs = [{ user: "Hola.", ai: "No me mires así." }, { user: "¿Por qué?", ai: "Porque sí." }];
+  assert.equal(
+    P.parseDialogueStyle(pairs),
+    "{{user}}: Hola.\n\n{{char}}: No me mires así.\n\n{{user}}: ¿Por qué?\n\n{{char}}: Porque sí.",
+  );
+  // The detail record nests the same array under `.dialogue`.
+  assert.equal(P.parseDialogueStyle({ dialogue: pairs }), P.parseDialogueStyle(pairs));
+  // A style label is a string, not dialogue.
+  assert.equal(P.parseDialogueStyle("Descriptivo, frases cortas"), "");
+  assert.equal(P.parseDialogueStyle([{ name: "Descriptivo" }]), "");
+  assert.equal(P.parseDialogueStyle(null), "");
+});
+
+test("exampleString rewrites the flattened user;ai form and leaves labelled text alone", () => {
+  assert.equal(
+    P.exampleString("Hola.;No me mires así.\n¿Por qué?;Porque sí."),
+    "{{user}}: Hola.\n\n{{char}}: No me mires así.\n\n{{user}}: ¿Por qué?\n\n{{char}}: Porque sí.",
+  );
+  assert.equal(P.exampleString("{{char}}: No."), "{{char}}: No.");
+  assert.equal(P.exampleString("Texto sin formato"), "Texto sin formato");
+  assert.equal(P.exampleString(""), "");
+});
+
+test("normalizeScene prefers the creator's dialogue pairs over the flat string", () => {
+  const card = P.normalizeScene(SCENE, null, {
+    status: "ok",
+    data: {
+      dialogueStyle: { dialogue: [{ user: "Hola.", ai: "No me mires así." }] },
+      conversationExample: "{{char}}: Otra cosa.",
+    },
+  });
+  assert.equal(card.fields.exampleDialogue, "{{user}}: Hola.\n\n{{char}}: No me mires así.");
+  assert.equal(card.fields.personality, "");
+});
+
 test("premiseBlock lifts the opening stage direction and nothing else", () => {
   assert.equal(P.premiseBlock("*Bangchan es tu esposo*\n\nBangchan: hola"), "Bangchan es tu esposo");
   assert.equal(P.premiseBlock("**Sala de estar, 3 AM.**\n\nHola."), "Sala de estar, 3 AM.");

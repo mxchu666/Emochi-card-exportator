@@ -7,10 +7,30 @@
   const API_BASE = "https://emochi-backend-k8s.flowgpt.com";
   const TIMEOUT_MS = 20000;
 
-  // Emochi URLs look like /character/<slug>-<8 hex>/chat; the API accepts that whole slug as the id.
+  // Emochi URLs look like /character/<slug>-<8 hex>/chat; the API accepts that
+  // whole slug as the id. The Lab (Story, Soundstage, LiveRoom) addresses its
+  // content under /lab/..., so the trailing path segment is taken as the id and
+  // the surface word is skipped. The Lab's shape could not be observed from a
+  // signed-out session; if a surface uses a different record type, the scan says
+  // which route failed rather than returning a half card.
+  const LAB_SURFACES = new Set(["story", "soundstage", "liveroom", "live-room", "experience", "lab"]);
+
   function currentCharacterId() {
+    if (typeof location === "undefined") return null;
     const m = location.pathname.match(/\/character\/([^/?#]+)/i);
-    return m ? decodeURIComponent(m[1]) : null;
+    if (m) return decodeURIComponent(m[1]);
+    const lab = location.pathname.match(/\/lab\/(.*)$/i);
+    if (!lab) return null;
+    const parts = lab[1]
+      .split("/")
+      .filter(Boolean)
+      .map((part) => decodeURIComponent(part));
+    const id = [...parts].reverse().find((part) => !LAB_SURFACES.has(part.toLowerCase()));
+    return id || null;
+  }
+
+  function isLabPage() {
+    return typeof location !== "undefined" && /\/lab(\/|$)/i.test(location.pathname);
   }
 
   // Same-origin route Emochi's own app uses to mint its bearer. Null means signed out.
@@ -124,33 +144,62 @@
       .filter(Boolean);
   }
 
-  const ROLE_PREFIX = { assistant: "{{char}}", bot: "{{char}}", user: "{{user}}", human: "{{user}}" };
+  const ROLE_PREFIX = {
+    assistant: "{{char}}",
+    bot: "{{char}}",
+    char: "{{char}}",
+    character: "{{char}}",
+    model: "{{char}}",
+    ai: "{{char}}",
+    user: "{{user}}",
+    human: "{{user}}",
+    person: "{{user}}",
+  };
+
+  // Sample dialogue is stored as turns, but never in one shape. Emochi's own
+  // recorder uses `{role, content}`; the export tooling and Polybuzz use
+  // `{user, ai}` pairs, one entry per exchange; some records carry
+  // `{isUser, text}`. All of them become {{user}}/{{char}} lines, because the
+  // card format only understands those two speakers.
+  function turnLines(turn) {
+    if (typeof turn === "string") return s(turn) ? ["{{char}}: " + s(turn)] : [];
+    if (!turn || typeof turn !== "object") return [];
+    const mine = s(turn.user);
+    const theirs = s(turn.ai);
+    if (mine || theirs) {
+      return [mine ? "{{user}}: " + mine : "", theirs ? "{{char}}: " + theirs : ""].filter(Boolean);
+    }
+    const content = s(turn.content) || s(turn.text) || s(turn.message) || s(turn.value);
+    if (!content) return [];
+    const raw = (s(turn.role) || s(turn.speaker) || s(turn.author) || (turn.isUser ? "user" : "")).toLowerCase();
+    return [(ROLE_PREFIX[raw] || "{{char}}") + ": " + content];
+  }
+
+  function dialogueArray(v) {
+    if (Array.isArray(v)) return v;
+    if (!v || typeof v !== "object") return null;
+    for (const key of ["dialogue", "messages", "conversations", "exampleConversation"]) {
+      if (Array.isArray(v[key])) return v[key];
+    }
+    return null;
+  }
 
   function exampleDialogue(v) {
     if (typeof v === "string") return v.trim();
-    if (!Array.isArray(v)) return "";
-    return v
-      .map((turn) => {
-        const content = s(turn && turn.content);
-        if (!content) return "";
-        const role = s(turn && turn.role).toLowerCase();
-        return (ROLE_PREFIX[role] || s(turn && turn.role) || "{{char}}") + ": " + content;
-      })
-      .filter(Boolean)
-      .join("\n\n");
+    const list = dialogueArray(v);
+    if (!list) return "";
+    return list
+      .map(turnLines)
+      .reduce((acc, lines) => acc.concat(lines), [])
+      .join("\n\n")
+      .trim();
   }
 
-  // Emochi compiles each character's definition into one system prompt and
-  // publishes it on listed characters (`initPrompt`). The shape is stable:
-  //   <Name>'s name: <Name>.
-  //   <Name> calls {{user}} by {{user}} or any name introduced by {{user}}.
-  //   <Name>'s personality: ...
-  //   <Name>'s background: ...
-  //   scenario of role-play: ...
-  //   Example conversations between <Name> and {{user}}: ...
-  //   Do not write as {{user}} or assume {{user}}'s reaction or response.
   // Sections are optional and may sit on one line, so markers are located by
-  // index rather than by splitting lines.
+  // index rather than by splitting lines. The grammar Emochi compiles is the
+  // first set; creators edit the text, so a second, line-anchored set covers the
+  // drift ("Personality:", "{{char}}'s personality traits:", "Example dialogue").
+  // The strict set runs first so a recognised prompt parses exactly as before.
   const SECTION_MARKERS = [
     ["personality", /'s personality:/i],
     ["characterBackground", /'s background:/i],
@@ -158,19 +207,25 @@
     ["characterExampleConversation", /example conversations? between/i],
   ];
 
-  function parseSystemPrompt(raw) {
-    const text = s(raw);
-    if (!text) return null;
-    const body = text
-      .replace(/^\s*["']?\[\]\s*["']?/, "")
-      .split(/do not write as \{\{user\}\}/i)[0]
-      .trim();
-    if (!body) return null;
+  const TOLERANT_MARKERS = [
+    ["personality", /(?:^|\n)[^\n:]{0,40}personality(?:\s+traits)?\s*:/i],
+    ["characterBackground", /(?:^|\n)[^\n:]{0,40}(?:background|backstory)\s*:/i],
+    ["scenario", /(?:^|\n)[^\n:]{0,40}scenario[^\n:]{0,40}:/i],
+    ["characterExampleConversation", /(?:^|\n)[^\n:]{0,40}example\s+(?:conversations?|dialogues?)/i],
+  ];
 
-    const marks = SECTION_MARKERS.map(([key, re]) => {
-      const hit = re.exec(body);
-      return hit ? { key, start: hit.index, end: hit.index + hit[0].length } : null;
-    })
+  // The closing instruction is a sentence, not a boundary: it is removed where it
+  // appears and the text around it survives. Cutting everything after it used to
+  // drop every section that followed a creator who quoted the rule inside their
+  // own example dialogue.
+  const DO_NOT_WRITE = /do not write as \{\{user\}\}[^.\n]*\.?/gi;
+
+  function parseSections(body, markers) {
+    const marks = markers
+      .map(([key, re]) => {
+        const hit = re.exec(body);
+        return hit ? { key, start: hit.index, end: hit.index + hit[0].length } : null;
+      })
       .filter(Boolean)
       .sort((a, b) => a.start - b.start);
 
@@ -183,11 +238,6 @@
       ? new RegExp("\\s*" + out.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$", "i")
       : null;
 
-    // A prompt with no section markers is a plain system prompt, not a card.
-    if (!marks.length) {
-      out.personality = body;
-      return out;
-    }
     for (let i = 0; i < marks.length; i += 1) {
       const stop = i + 1 < marks.length ? marks[i + 1].start : body.length;
       let part = body.slice(marks[i].end, stop).trim();
@@ -195,7 +245,28 @@
       part = part.replace(/^\.\s*/, "").replace(/\s+\.$/, "");
       if (part.length > 1) out[marks[i].key] = part;
     }
-    return out;
+    return { out, count: marks.length };
+  }
+
+  function parseSystemPrompt(raw) {
+    const text = s(raw);
+    if (!text) return null;
+    const body = text
+      .replace(/^\s*["']?\[\]\s*["']?/, "")
+      .replace(DO_NOT_WRITE, "")
+      .trim();
+    if (!body) return null;
+
+    const strict = parseSections(body, SECTION_MARKERS);
+    const tolerant = parseSections(body, TOLERANT_MARKERS);
+    // Whichever pass recognises more sections wins; a tie keeps the strict
+    // grammar, so a prompt Emochi compiled parses exactly as before.
+    const chosen = tolerant.count > strict.count ? tolerant : strict;
+
+    // A prompt with no section markers at all is a plain system prompt, not a
+    // card, so the whole body is the best available personality text.
+    if (!chosen.count) return { personality: body };
+    return chosen.out;
   }
 
   function normalizePrompt(prompt) {
@@ -216,7 +287,7 @@
         scenario: s(p.scenario),
         greeting: s(p.welcomeMessage) || s(p.displayWelcomeMessage) || s(p.rawWelcomeMessage),
         altGreetings: [],
-        exampleDialogue: exampleDialogue(p.exampleConversation) || s(p.characterExampleConversation),
+        exampleDialogue: exampleDialogue(p.exampleConversation) || exampleDialogue(p.characterExampleConversation) || s(p.characterExampleConversation),
       },
       scriptRefs: [],
       lorebooks: [],
@@ -227,7 +298,11 @@
     if (compiled) {
       mergeCreator(card, compiled);
       // The compiled prompt only carries the sections the creator filled in, so a
-      // thin card is the creator's blank field, not a failed read.
+      // thin card is the creator's blank field, not a failed read. That claim is
+      // only made when the layout was actually recognised: with one section or
+      // none, a missing field is a parse outcome, and saying "the creator left it
+      // empty" would be a guess.
+      const sections = Object.keys(compiled).filter((key) => key !== "name").length;
       const blank = [
         ["personality", "personality"],
         ["scenario", "scenario"],
@@ -235,7 +310,7 @@
       ]
         .filter(([key]) => !card.fields[key])
         .map(([, label]) => label);
-      if (blank.length) {
+      if (blank.length && sections >= 1 && compiled.name) {
         card.note =
           "Emochi publishes this character's definition, but the creator left " +
           (blank.length === 1 ? blank[0] : blank.slice(0, -1).join(", ") + " and " + blank[blank.length - 1]) +
@@ -275,7 +350,9 @@
     }
 
     const examples =
-      exampleDialogue(owner.exampleConversation) || s(owner.characterExampleConversation);
+      exampleDialogue(owner.exampleConversation) ||
+      exampleDialogue(owner.characterExampleConversation) ||
+      s(owner.characterExampleConversation);
     if (examples && examples !== card.fields.exampleDialogue) {
       card.fields.exampleDialogue = examples;
       filled = true;
@@ -408,8 +485,7 @@
     const card = normalizePrompt(data && data.prompt);
 
     if (opts.deep) {
-      if (onProgress) onProgress("Fetching creator definition...");
-      const bearer = await readBearer();
+      if (onProgress) onProgress("Fetching creator definition...");      const bearer = await readBearer();
       if (bearer) {
         const session = { bearer, userId: readUserId() };
         // Read-only routes that can carry the definition. The first one that yields
@@ -458,11 +534,23 @@
         card.note = "Sign in to Emochi to pull the creator definition (personality, scenario, examples).";
       }
     }
+    // The Lab (Story, Soundstage, LiveRoom) serves the same prompt record, so the
+    // card reads normally there. What a card cannot carry is the Lab's stage: the
+    // ambient track, the voice casting, and the rest of a LiveRoom cast.
+    if (isLabPage()) {
+      card.hint = [
+        card.hint,
+        "Read from the Emochi Lab. The card carries this character's text fields; the ambient audio, the voice casting and any other members of a LiveRoom are not part of a character card.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
     return card;
   }
 
   NS.scraper = {
     currentCharacterId,
+    isLabPage,
     readBearer,
     readUserId,
     scanCharacter,
@@ -474,6 +562,9 @@
     describeFailures,
     promptTagNames,
     exampleDialogue,
+    turnLines,
+    dialogueArray,
+    parseSections,
     hint: "Quick exports every field Emochi publishes, including the compiled personality and scenario when the character has them. Deep adds the creator's own definition when you're signed in.",
   };
 })();

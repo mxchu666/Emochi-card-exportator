@@ -2,7 +2,9 @@
 
 [English](README.md) · **Español** · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi** o **Polybuzz** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
+Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** o **Crushon.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
+
+**Nuevo en 0.9.0:** lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, un parser de Emochi que dejó de perder campos, y el Emochi Lab. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
 
 > Gratis y de código abierto. Si te resulta útil y quieres apoyar el trabajo original, pásate por [inkwell.rip](https://inkwell.rip). Eso es lo que mantiene vivos este tipo de herramientas.
 
@@ -120,6 +122,33 @@ Una tarjeta de Polybuzz sale con lo que el sitio publica:
 | Gender | `sceneGender`, como línea `Gender: Male/Female/Non-binary` en la descripción |
 | Etiquetas, avatar, nombre, creador | el registro de la escena |
 
+### Character.ai
+
+1. Abre un personaje en [character.ai](https://character.ai) con la sesión iniciada (`character.ai/character/...`).
+2. Deja que la página termine de cargar y pulsa **Extract card** → **Quick scan**.
+3. Exporta.
+
+| Campo de la tarjeta | Origen en Character.ai |
+|---|---|
+| Nombre, creador, avatar | el registro del personaje |
+| Description | `title` (el lema) seguido de `description` (el texto de «Acerca de») |
+| Greeting | `greeting` |
+| Diálogo de ejemplo | `definition` — la definición de texto libre del creador, cuando es pública |
+
+**Sobre la definición.** Character.ai esconde la definición de un personaje detrás de un segundo interruptor del creador llamado **Definition Visibility**, separado de la visibilidad del personaje. Cuando está apagado, el sitio no envía el texto a nadie, así que el bloque de diálogo de ejemplo sale vacío y el panel lo dice en una nota al pie. El resto de campos está ahí igualmente.
+
+El lector funciona observando las peticiones de la propia página: un script pequeño en el mundo de la página (`src/intercept.js`) copia la cabecera `Authorization` a una etiqueta oculta y reemite cada respuesta JSON como un evento del DOM, que el lector recoge. Nunca modifica una petición ni manda una propia con tu token. Cuando la página todavía no ha hecho la llamada, el lector repite los mismos tres endpoints que usa el sitio, a través del service worker de la extensión.
+
+### Crushon.ai
+
+1. Abre un personaje en [crushon.ai](https://crushon.ai) (`crushon.ai/character/...`).
+2. Deja que la página termine de cargar y pulsa **Extract card** → **Quick scan**.
+3. Exporta.
+
+Crushon se renderiza por completo en el cliente, así que el lector lee el registro que la propia página renderizó en lugar de llamar a una API. Los alias de campo cubren todas las grafías que el sitio ha usado entre versiones: `firstMessage` / `first_mes` / `greeting`, `description` / `introduction` / `intro`, `avatar` / `avatarUrl` / `image`, `mes_example` / `exampleDialogue` / `dialogue`. Si la página aún no ha pedido el personaje, recárgala y vuelve a escanear.
+
+**Nota sobre los nombres de campo.** El importador de Crushon mapea una tarjeta Tavern invertida: la `personality` de la tarjeta se convierte en la *Introduction* de Crushon, y la `description` de la tarjeta se convierte en la *Personality* de Crushon. El lector informa lo que Crushon publica en el campo al que pertenece en la tarjeta, así que pasar por ambas herramientas deja el texto donde estaba.
+
 ---
 
 ## Polybuzz: la información de antecedentes no se puede recuperar. Por esto.
@@ -155,20 +184,103 @@ Un registro breve, porque la forma del proceso explica por qué los límites ant
 8. **Mantener el panel en silencio.** Un campo privado del creador que falta es el caso normal, no un error. El panel muestra una nota al pie, no un aviso. Solo un fallo real (sin sesión, ninguna ruta respondió) recibe un mensaje.
 9. **Probar todo lo que se puede probar.** `node --test` cubre los lectores, el normalizador, los exportadores y el constructor de bloques. 71 tests en el momento de escribir esto. Cada afirmación sobre la API en este README se verificó contra el sitio en vivo, y las que no se pudieron verificar están marcadas como tales.
 10. **Escribirlo.** La sección para desarrolladores existe para que la siguiente persona no tenga que volver a deducirlo.
+11. **Reutilizar antes de escribir.** Character.ai y Crushon.ai solo entregan el registro a su propio JavaScript, así que un solo mecanismo cubre a los dos: un sniffer en el mundo de la página y un recorrido con puntuación sobre las cargas. Un archivo nuevo para cada uno, más dos compartidos, y los exportadores no se tocaron.
+12. **Acreditar el origen de un enfoque.** El patrón de intercepción viene del [exportador de taquanta](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), y el crédito está arriba del archivo y en este README, no solo en un mensaje de commit.
+13. **Decir lo que no está verificado.** Los dos sitios nuevos responden `403` de Cloudflare a una máquina sin navegador, así que los contratos están documentados y la lectura en vivo no. Eso está escrito en tres sitios en lugar de disimularse.
 
 **Esta herramienta está en desarrollo activo y seguirá recibiendo actualizaciones.** Se añaden sitios, se arreglan lectores rotos y las notas de API se corrigen cuando un sitio cambia. Si algo se rompe, normalmente es porque un sitio cambió la forma de su carga, y eso tiene arreglo.
 
 ---
 
+## Devlog
+
+El registro de cómo se llegó realmente a cada versión: qué se intentó, qué falló y qué enseñó el fallo. Lo más reciente primero. La versión corta está en el [changelog](CHANGELOG.md); esta es la larga.
+
+### 0.9.0 — dos sitios cerrados, un solo mecanismo, y un parser de Emochi con tres errores
+
+**Emochi primero, porque era la prioridad.** Había dos informes abiertos: personalidad y escenario ausentes en algunos bots, y `characterExampleConversation` que nunca llegaba a la tarjeta.
+
+El fallo de las conversaciones de ejemplo se resolvió en diez minutos. La ruta de definición devuelve `characterExampleConversation` como un **array de turnos**, y el lector le aplicaba `String(...)`. Un array se convierte en `"[object Object],[object Object]"` en algunos entornos y en `""` en el helper `s()` del normalizador — en ningún caso, diálogo. Ahora se parsea como turnos, y el parser acepta `{role, content}`, `{user, ai}`, `{isUser, text}` y un envoltorio `{dialogue: [...]}`, porque el grabador de Emochi usa la primera forma, los importadores de tarjetas usan la segunda, y el resto aparece en registros anteriores a un cambio de esquema.
+
+El fallo de la personalidad tardó más y resultó ser tres fallos distintos apilados:
+
+1. **La instrucción de cierre se trataba como un límite.** Todo prompt compilado acaba con `Do not write as {{user}} or assume {{user}}'s reaction or response.` El lector cortaba el texto ahí y descartaba toda la cola. Eso es correcto para un prompt que termina con la regla, que es lo que produce el compilador. Es incorrecto en el momento en que un creador cita la regla dentro de sus propios antecedentes o su diálogo de ejemplo, y pasa más de lo que parece: hay gente que pega la regla en su ejemplo a propósito, para enseñársela al modelo. Cada sección posterior a la cita desaparecía. El arreglo es eliminar esa frase donde aparezca y conservar el texto que la rodea.
+2. **La gramática de secciones aceptaba una sola redacción exacta.** Los marcadores eran `'s personality:`, `'s background:`, `scenario of role-play:`. Un creador que escribió `Personality:` — mayúscula, sin posesivo, porque escribió su propio prompt en lugar de usar el constructor — parseaba a nada, y el prompt entero caía en la rama de «sin marcadores, trátalo como personalidad». Ahora hay un segundo conjunto de marcadores anclado a línea que tolera la deriva, y gana la pasada que reconoce más secciones. Un empate conserva la gramática estricta, así que los prompts que produjo el compilador se parsean exactamente igual que antes.
+3. **La nota de sección vacía era una suposición.** El lector decía «el creador dejó la personalidad y el diálogo de ejemplo vacíos» siempre que esos campos salían en blanco, incluso cuando el parser no había reconocido la estructura — en cuyo caso estaban en blanco por culpa del parser. La nota ahora solo se dispara cuando también se reconoció la línea del nombre, es decir, cuando la estructura se entendió de verdad.
+
+Los tres están cubiertos por tests escritos desde las formas que fallaban, no desde las que pasaban.
+
+**Después, los diálogos de ejemplo de Polybuzz.** El ticket traía una captura del editor de *Estilo de diálogo*: las filas con avatar al lado son `{{user}}`, las filas sin avatar son `{{char}}`. Leer el bundle de la página de creación confirmó la forma — `dialogueStyleObj` es un array de pares `{user, ai}`, una entrada por intercambio, y el registro de detalle lo devuelve bajo `dialogueStyle.dialogue`. Ambos se parsean ahora a líneas de tarjeta. La cadena plana `conversationExample` es el mismo dato como `user;ai` por línea, y esa forma también se reescribe.
+
+Una trampa: una cadena plana bajo `dialogueStyle` es la **etiqueta de estilo** (`Descriptivo, frases cortas`), no diálogo. La primera versión del parser reescribió alegremente una etiqueta de estilo como `{{char}}: Descriptivo, frases cortas` y la metió en el bloque de ejemplos. Los tests lo cazaron. Ahora las cadenas nunca se convierten en diálogo; solo los arrays y el texto `user;ai`.
+
+**Después, Character.ai.** El enfoque está tomado del [exportador de taquanta](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), que resolvió el mismo problema: el registro solo lo pide el JavaScript de la propia página, con una cabecera `Authorization: Token <hex>` que la extensión no puede fabricar. La implementación de referencia ejecuta un script en el mundo de la página (`MAIN`), intercepta `fetch` y `XMLHttpRequest`, y guarda la cabecera en el DOM. Es la única forma de ver una cabecera que el navegador añade fuera de tu contexto.
+
+Dos cambios sobre ella. El token va en una etiqueta meta con espacio de nombres propio en lugar de una que pueda colisionar. Y cada respuesta JSON que recibe la página se reemite como un evento del DOM que lleva una **cadena** — los objetos no sobreviven a la frontera entre un script `MAIN` y un content script aislado, pero las cadenas sí. Ese único cambio convirtió el sniffer de «captura el token y repite la llamada» en «captura el token *y* la respuesta», así que el lector sigue funcionando cuando la repetición es rechazada.
+
+La definición es el campo interesante. Character.ai la cierra detrás de **Definition Visibility**, un segundo interruptor separado de la visibilidad del personaje, y cuando está apagado el texto no se envía a nadie. Así que una tarjeta con el bloque de diálogo de ejemplo vacío es una configuración del creador, no una lectura fallida, y el panel lo dice exactamente así en lugar de mostrar un error.
+
+**Después, Crushon.ai.** Renderizado por completo en el cliente y detrás de un muro anti-bots. No hay API pública que repetir y las llamadas de la página llevan estado de sesión, así que el lector no llama a nada: recorre las cargas que la página ya recibió y puntúa cada objeto por cuántos nombres de campo conocidos lleva. Gana el más rico. Los alias cubren las grafías que el sitio ha usado entre versiones, porque fallar en una grafía cuesta el campo entero.
+
+La parte compartida de ambos lectores es `src/harvest.js`: recogida de cargas, lectura del token y el recorrido con puntuación. Dos lectores nuevos, dos archivos compartidos, cero cambios en `exporters.js` o `panel.js` — la regla de que cada lector llena el mismo objeto de tarjeta es lo que lo hizo posible, y es por lo que el siguiente sitio cuesta un archivo.
+
+**Lo que no se pudo verificar.** Los dos hosts nuevos responden `403` de Cloudflare a la máquina donde se construyó esto, así que ningún lector se ha ejercitado contra un navegador con sesión. Lo que sí se verificó: el endpoint neo está vivo y responde `{"status":"NOT_OK","error":"bad request"}` a un id sintético, que es la ruta quejándose del cuerpo y no del llamante. Los contratos de campo vienen de la implementación funcional de taquanta. Está escrito como no verificado en el changelog, en la lista de tareas y aquí, porque un lector que no se ejercitó es una afirmación distinta de uno que sí.
+
+### 0.8.0 — el fork recibe nombre y seis idiomas
+
+El repositorio conservaba su nombre original mientras soportaba cuatro sitios. Renombrado a **Universal Character Card Exporter**, que es lo que hace. La pestaña de Issues se habilitó al mismo tiempo, porque la sección de reporte de errores mandaba a la gente a una pestaña que no existía.
+
+La documentación pasó a seis idiomas en una sola pasada. La referencia de API sitio por sitio se queda en inglés y lo dice al principio de la sección: es material de referencia que se queda obsoleto más rápido, y seis copias de un documento obsoleto son seis veces el mantenimiento sin ninguna ganancia. Las traducciones enlazan a ella.
+
+La sección de Polybuzz se reescribió. Antes decía que los antecedentes «no se pueden recuperar» como conclusión. Ahora la evidencia está debajo: la etiqueta de privado por diseño en el formulario de creación, el barrido exhaustivo de rutas, el `210002` en el bot de otra persona, el experimento controlado con `ZZZ-123` en dos cuentas. Un resultado negativo afirmado no vale nada; un resultado negativo con su método adjunto vale algo.
+
+### 0.7.13 — personalidad a partir de las etiquetas del propio creador
+
+Polybuzz no publica antecedentes ni campo de personalidad, lo que dejaba las tarjetas con el bloque de Personality vacío. El árbol de etiquetas ya se pedía para la lista de etiquetas de la tarjeta, así que se leyó con más cuidado: cada etiqueta se archiva bajo uno de cuatro padres, y `Personalidad` contiene 41 palabras de temperamento que el creador elige a mano. Eso es la caracterización del propio creador, escrita por él, publicada por el sitio.
+
+El cruce es honesto de una forma concreta: las etiquetas de género, origen e identidad se quedan fuera de Personality y siguen en la lista de etiquetas, y un `systemRole` real sigue teniendo prioridad sobre las etiquetas cuando existe. Medido en 10 bots en vivo: 10/10 produjeron un bloque de Personality real. Una lista de etiquetas es más fina que unos antecedentes escritos, pero son palabras del creador en lugar de una suposición.
+
+### 0.7.10 – 0.7.12 — un eco no es un campo
+
+Tres versiones, una idea. `getsceneconfig` con un id de escena responde con el texto de introducción compilado como respaldo. Cinco escaneos con sesión de bots que la cuenta no posee devolvieron un `systemRole` idéntico carácter por carácter a `sceneBrief`. Así es como el servidor renderiza unos antecedentes vacíos, no un segundo campo que coincide por casualidad. Un eco exacto ahora se trata como ausencia, cada ruta conserva su propia respuesta en lugar de la primera no vacía, y el panel muestra una nota al pie en lugar de un aviso, porque un campo privado del creador es el caso normal.
+
+El escenario salió del mismo trabajo: los saludos de Polybuzz suelen abrir con una dirección escénica (`*Bangchan es tu esposo*`), que es la premisa del propio creador. Se promueve literal cuando el registro no lleva `templateIntro`. Nunca se parafrasea nada.
+
+---
+
+## Changelog
+
+Historial completo de versiones, con cada arreglo y su motivo: **[CHANGELOG.md](CHANGELOG.md)**.
+
+Versión corta:
+
+| Versión | Qué llegó |
+|---|---|
+| 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 88 tests |
+| 0.8.0 | Renombrado, documentación en seis idiomas, sección de crédito, reescritura de la evidencia de Polybuzz, Issues habilitado |
+| 0.7.13 | Personality de Polybuzz desde las etiquetas `Personalidad` del creador |
+| 0.7.12 | Scenario de Polybuzz desde la dirección escénica del saludo |
+| 0.7.11 | Candidatos por ruta, para que un eco no tape unos antecedentes reales |
+| 0.7.10 | Cadena de configuración con conversación, panel silencioso |
+| 0.7.0 – 0.7.9 | Soporte de Polybuzz, de principio a fin |
+| 0.6.0 – 0.6.1 | Lector de Emochi y escaneo profundo del historial de prompts |
+| 0.5.0 y anteriores | JanitorAI, heredado de la extensión original de erpocalypse |
+
+---
+
 ## Tareas pendientes
 
-- [ ] **Añadir soporte para Character.ai.**
+- [x] **Añadir soporte para Character.ai.** Hecho en 0.9.0. La definición sigue dependiendo del interruptor Definition Visibility del creador.
+- [x] **Añadir soporte para Crushon.ai.** Hecho en 0.9.0, leyendo lo que la página renderiza.
+- [x] **Prioridad — Emochi: algunos bots no muestran personalidad ni escenario.** Arreglado en 0.9.0. Tres causas, todas en el parser: la instrucción de cierre se trataba como límite de corte, la gramática de secciones solo aceptaba una redacción exacta, y la nota de «el creador lo dejó vacío» se disparaba con una estructura que no se había reconocido. Detalle en el [changelog](CHANGELOG.md).
+- [x] **Prioridad — Emochi: no se están recuperando las conversaciones de ejemplo.** Arreglado en 0.9.0. `characterExampleConversation` llega como array de turnos y la coerción a cadena lo convertía en `""`. Ahora se parsea como turnos.
+- [x] **Soporte del Emochi Lab.** Las URLs de Story, Soundstage y LiveRoom se leen contra el mismo registro de prompt, tomando el último segmento de la ruta como id. La sesión sin iniciar nunca expuso la forma real de las URLs del Lab, así que una superficie con otro tipo de registro informa de la ruta fallida en lugar de devolver media tarjeta.
 - [ ] **Añadir soporte para Saucepan AI.**
 - [ ] **Añadir soporte para WyvernChat.com.**
-- [ ] **Prioridad — Emochi: algunos bots no muestran personalidad ni escenario.** Una parte de los personajes de Emochi realmente no guarda definición, pero la tasa de fallo es más alta de lo que predice la medición del flag de publicación. Hay que aislarlo: ¿es la carga, el parser o el personaje?
-- [ ] **Prioridad — Emochi: no se están recuperando las conversaciones de ejemplo.** La ruta de definición lleva `characterExampleConversation`; no está llegando a la tarjeta. Esto rompe la fidelidad del diálogo de ejemplo y tiene que funcionar antes de poder dar Emochi por terminado.
+- [ ] **Verificar los lectores de Character.ai y Crushon.ai contra una sesión iniciada.** Los dos hosts responden `403` de Cloudflare a la máquina donde se construyó esta versión, así que los contratos están verificados pero la lectura en vivo no. Si alguno de los dos lectores falla en tu caso, un issue con el mensaje del panel es exactamente lo que hace falta.
+- [ ] **Añadir soporte para Chub.ai y Venus.chub.ai.**
 
-Los dos puntos de Emochi tienen prioridad sobre añadir sitios nuevos. Un lector que funciona a medias en un sitio soportado es peor que un sitio más que funciona del todo.
+Un lector que funciona a medias en un sitio soportado es peor que un sitio más que funciona del todo, y por eso los dos puntos de Emochi estuvieron por encima de añadir sitios nuevos hasta que se cerraron.
 
 ---
 
@@ -207,7 +319,9 @@ La extensión es JavaScript puro, sin dependencias y sin paso de compilación. E
 node --test
 ```
 
-`src/scraper.js` lee JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz. Los tres llenan la misma forma de tarjeta, así que los exportadores y el panel nunca saben en qué sitio estás. `src/exporters.js` convierte, `src/panel.js` y `src/panel.css` son el panel en la página, `background.js` es el service worker para peticiones que un content script no puede hacer (CORS, cabeceras prohibidas).
+`src/scraper.js` lee JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz, `src/cai.js` Character.ai y `src/crushon.js` Crushon.ai. Los cinco llenan la misma forma de tarjeta, así que los exportadores y el panel nunca saben en qué sitio estás. `src/exporters.js` convierte, `src/panel.js` y `src/panel.css` son el panel en la página, `background.js` es el service worker para peticiones que un content script no puede hacer (CORS, cabeceras prohibidas).
+
+Dos archivos existen solo para los sitios que nunca publican su registro en una API: `src/intercept.js` se ejecuta en el mundo de la propia página (`world: "MAIN"`, `document_start`) y copia al DOM lo que la página ya sabe; `src/harvest.js` recoge esas cargas y puntúa cada objeto contra una lista de nombres de campo conocidos. Añadir un tercer sitio cerrado significa un archivo que declare sus claves.
 
 **El registro de API sitio por sitio está en el README en inglés** ([Developer reference](README.md#developer-reference-english-only)). Se mantiene en inglés a propósito: es material de referencia y la parte que más se queda obsoleta cuando un sitio cambia. Se traducirá cuando se estabilice.
 

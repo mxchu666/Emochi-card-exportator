@@ -2,7 +2,9 @@
 
 **English** · [Español](README.es.md) · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-A browser extension that reads a character from **JanitorAI**, **Emochi** or **Polybuzz** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
+A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** or **Crushon.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
+
+**New in 0.9.0:** Character.ai and Crushon.ai readers, Polybuzz sample dialogues, an Emochi parser that stopped losing fields, and Emochi Lab. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -42,8 +44,13 @@ The extension is four small pieces with one job each, and a single rule that hol
 site page
    │
    ├─ src/scraper.js    reads JanitorAI
-   ├─ src/emochi.js     reads Emochi
-   └─ src/polybuzz.js   reads Polybuzz
+   ├─ src/emochi.js     reads Emochi (character pages and the Lab)
+   ├─ src/polybuzz.js   reads Polybuzz
+   ├─ src/cai.js        reads Character.ai
+   ├─ src/crushon.js    reads Crushon.ai
+   │       ▲
+   │       └─ src/intercept.js + src/harvest.js
+   │          (sites that only hand the record to their own client)
            │
            ▼
      one card object
@@ -56,7 +63,7 @@ site page
            └─ src/panel.js      ──▶ the on-page UI: block list, checkboxes, export row
 ```
 
-1. **Read.** The reader for the site you are on gathers the character. Each one does it differently, because each site exposes a different surface: JanitorAI has an internal JSON API, Emochi has a Next.js backend with a compiled prompt string, Polybuzz has a server-rendered Nuxt payload plus a REST API.
+1. **Read.** The reader for the site you are on gathers the character. Each one does it differently, because each site exposes a different surface: JanitorAI has an internal JSON API, Emochi has a Next.js backend with a compiled prompt string, Polybuzz has a server-rendered Nuxt payload plus a REST API, and Character.ai and Crushon.ai only hand the record to their own page — so for those two the extension sniffs what the page already fetched instead of asking for it.
 2. **Normalise.** The raw record is flattened into the card object above. This is where field names from the other site get translated: Polybuzz's `sceneBrief` becomes `description`, `speechText` becomes `greeting`, `templateIntro` becomes `scenario`. Nothing is invented. If a field is not published, it stays empty.
 3. **Present.** The panel lists every block it found with a checkbox and a preview, so you can drop a jailbreak line or a system prompt that got bundled in. The count at the top (`x/y kept`) tells you exactly what will be written.
 4. **Export.** `toBlocks()` turns the ticked blocks into the target format. The exporter is site-agnostic: it has never heard of Emochi or Polybuzz, it only knows the card object. That is why every site gets all five formats for free.
@@ -120,6 +127,33 @@ A Polybuzz card comes out with what the site publishes:
 | Gender | `sceneGender`, carried as a `Gender: Male/Female/Non-binary` line in the description |
 | Tags, avatar, name, creator | the scene record |
 
+### Character.ai
+
+1. Open a character on [character.ai](https://character.ai) while signed in (`character.ai/character/...`).
+2. Let the page finish loading, then click **Extract card** → **Quick scan**.
+3. Export.
+
+| Card field | Character.ai source |
+|---|---|
+| Name, creator, avatar | the character record |
+| Description | `title` (the tagline) followed by `description` (the About text) |
+| Greeting | `greeting` |
+| Example dialogue | `definition` — the creator's free-text definition, when it is public |
+
+**About the Definition.** Character.ai hides a character's Definition behind a second creator switch called **Definition Visibility**, separate from Character Visibility. When it is off, the site does not send the text to anyone, so the example dialogue block comes out empty and the panel says so in a footnote. Every other field is there regardless.
+
+The reader works by watching the page's own requests: a small script in the page's own world (`src/intercept.js`) copies the `Authorization` header into a hidden tag and re-broadcasts every JSON response as a DOM event, which the reader picks up. It never changes a request and never sends one of its own with your token. When the page has not made the call yet, the reader replays the same three endpoints the site uses, through the extension's service worker.
+
+### Crushon.ai
+
+1. Open a character on [crushon.ai](https://crushon.ai) (`crushon.ai/character/...`).
+2. Let the page finish loading, then click **Extract card** → **Quick scan**.
+3. Export.
+
+Crushon is fully client-rendered, so the reader reads the record the page itself rendered rather than calling an API. Field aliases cover every spelling the site has shipped across releases: `firstMessage` / `first_mes` / `greeting`, `description` / `introduction` / `intro`, `avatar` / `avatarUrl` / `image`, `mes_example` / `exampleDialogue` / `dialogue`. If the page has not fetched the character yet, reload it and scan again.
+
+**Note on field names.** Crushon's own importer maps a Tavern card inverted: card `personality` becomes Crushon's *Introduction*, card `description` becomes Crushon's *Personality*. The reader reports what Crushon publishes, in the field it belongs to on the card, so round-tripping through both tools lands the text back where it started.
+
 ---
 
 ## Polybuzz: the background information cannot be retrieved. Here is why.
@@ -153,22 +187,105 @@ A short record, because the shape of the process explains why the limits above a
 6. **Enumerate the API, do not guess it.** The site's JavaScript bundle declares 214 request configs. Every read-only one was called against public bots. This is how the "background is unreachable" conclusion was reached — not by failing once, but by exhausting the surface.
 7. **Prove the negative with a control.** The `ZZZ-123` experiment, run on two accounts, is what turned "we cannot find it" into "it is not there to be found".
 8. **Keep the panel quiet.** A missing creator-private field is the normal case, not an error. The panel shows a footnote, not a banner. Only a genuine failure (signed out, no route answered) gets a message.
-9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 71 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
+9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 88 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
 10. **Write it down.** The developer section below exists so the next person does not have to re-derive it.
+11. **Reuse before writing.** Character.ai and Crushon.ai both only give the record to their own JavaScript, so one mechanism covers both: a page-world sniffer plus a scoring walk over the payloads. One new file each, plus two shared ones, and the exporters were not touched.
+12. **Credit the source of an approach.** The interception pattern comes from [taquanta's exporter](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), and the credit sits at the top of the file and in this README, not only in a commit message.
+13. **Say what is not verified.** Both new sites answer Cloudflare `403` to a machine without a browser, so the contracts are documented and the live read is not. That is written down in three places rather than glossed over.
 
 **This tool is under active development and will keep receiving updates.** New sites get added, broken readers get fixed, and the API notes get corrected when a site changes. If something breaks, it is usually because a site changed its payload shape, and that is fixable.
 
 ---
 
+## Devlog
+
+The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.9.0 — two gated sites, one mechanism, and an Emochi parser that had three bugs
+
+**Emochi first, because it was the priority.** Two reports were open: personality and scenario missing on some bots, and `characterExampleConversation` never reaching the card.
+
+The example-conversation bug took ten minutes. The definition route returns `characterExampleConversation` as an **array of turns**, and the reader ran `String(value)` over it. An array coerces to `"[object Object],[object Object]"` in some runtimes and to `""` in the normaliser's own `s()` helper — either way, not dialogue. It is now parsed as turns, and the parser accepts `{role, content}`, `{user, ai}`, `{isUser, text}` and a `{dialogue: [...]}` wrapper, because Emochi's own recorder uses the first shape, the card importers use the second, and the rest appear in records from before a schema change.
+
+The missing-personality bug took longer and turned out to be three separate faults stacked on each other:
+
+1. **The closing instruction was treated as a boundary.** Every compiled prompt ends with `Do not write as {{user}} or assume {{user}}'s reaction or response.` The reader cut the text there — the entire tail was discarded. That is correct for a prompt that ends with the rule, which is what the compiler produces. It is wrong the moment a creator quotes the rule inside their own background or example dialogue, which happens more often than you would think: people paste the rule into their example on purpose, to teach the model. Every section after the quote disappeared. The fix is to remove that sentence where it appears and keep the text around it.
+2. **The section grammar accepted one exact wording.** The markers were `'s personality:`, `'s background:`, `scenario of role-play:`. A creator who typed `Personality:` — capital P, no possessive, because they wrote their own prompt instead of using the builder — parsed to nothing, and the whole prompt fell through to the "no markers, treat it as personality" branch. There is now a second marker set that is line-anchored and tolerates the drift, and the pass that recognises more sections wins. A tie keeps the strict grammar, so prompts the compiler produced parse exactly as they did before.
+3. **The blank-section note was a guess.** The reader told the user "the creator left personality and example dialogue empty" whenever those fields came out blank — including when the parser had not recognised the layout at all, in which case the fields were blank because of the parser. The note now only fires when the name line was recognised too, which means the layout was actually understood.
+
+All three are covered by tests written from the failing shapes, not from the passing ones.
+
+**Then Polybuzz's sample dialogues.** The ticket had a screenshot of the *Estilo de diálogo* editor: rows with an avatar next to them are `{{user}}`, rows without are `{{char}}`. Reading the create page's bundle confirmed the shape — `dialogueStyleObj` is an array of `{user, ai}` pairs, one entry per exchange, and the detail record echoes it back under `dialogueStyle.dialogue`. Both are now parsed into card lines. The flat `conversationExample` string is the same data as `user;ai` per line, and that form is rewritten too.
+
+One trap: a plain string under `dialogueStyle` is the **style label** (`Descriptivo, frases cortas`), not dialogue. The first version of the parser happily rewrote a style label into `{{char}}: Descriptivo, frases cortas` and dropped it into the example block. The tests caught it. Strings never become dialogue now; only arrays and `user;ai` text do.
+
+**Then Character.ai.** The approach is taken from [taquanta's exporter](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), which solved the same problem: the record is only ever fetched by the page's own JavaScript, with an `Authorization: Token <hex>` header the extension cannot mint. The reference implementation runs a script in the page's world (`MAIN`), shadows `fetch` and `XMLHttpRequest`, and stores the header in the DOM. That is the only way to see a header the browser adds outside your context.
+
+Two changes to it. The token goes into a namespaced meta tag rather than an easily-collided one. And every JSON response the page receives is re-broadcast as a DOM event carrying a **string** — objects do not survive the world boundary between a `MAIN` script and an isolated content script, but strings do. That single change turned the sniffer from "capture the token and replay the call" into "capture the token *and* the answer", so the reader still works when the replay is refused.
+
+The Definition is the interesting field. Character.ai gates it behind **Definition Visibility**, a second switch separate from Character Visibility, and when it is off the text is not sent to anyone. So a card with an empty example-dialogue block is a creator setting, not a failed read, and the panel says exactly that instead of showing an error.
+
+**Then Crushon.ai.** Fully client-rendered behind a bot wall. There is no public API to replay and the page's own calls carry session state, so the reader does not call anything: it walks the payloads the page already received and scores every object by how many known field names it carries. The richest match wins. Field aliases cover the spellings the site has shipped across releases, because a miss on one spelling costs the whole field.
+
+The shared part of both readers is `src/harvest.js`: payload collection, token readback, and the scoring walk. Two new readers, two shared files, zero changes to `exporters.js` or `panel.js` — the rule that every site reader fills the same card object is what made that possible, and it is why the next site costs one file.
+
+**What could not be verified.** Both new hosts answer Cloudflare `403` to the machine this was built on, so neither reader has been exercised against a signed-in browser. What *was* verified: the neo endpoint is live and answers `{"status":"NOT_OK","error":"bad request"}` to a synthetic id, which is the route complaining about the body rather than about the caller. The field contracts come from taquanta's working implementation. It is written down as unverified in the changelog, in the to-do list, and here, because a reader that was not exercised is a different claim from one that was.
+
+### 0.8.0 — the fork gets a name and six languages
+
+The repository was still called by its original name while supporting four sites. Renamed to **Universal Character Card Exporter**, which is what it does. Issues were enabled at the same time, because the bug-report section was telling people to use a tab that did not exist.
+
+Documentation went to six languages in one pass. The site-by-site API reference stays in English and says so at the top of the section: it is reference material that goes stale fastest, and six copies of a stale document is six times the maintenance for no gain. The translations link to it.
+
+The Polybuzz section got a rewrite. It had been saying the background "cannot be retrieved" as a conclusion. The evidence now sits underneath it — the private-by-design label in the create form, the exhaustive route sweep, the `210002` on someone else's bot, the `ZZZ-123` control test run on two accounts. A negative result that is asserted is worth nothing; a negative result with its method attached is worth something.
+
+### 0.7.13 — personality from the creator's own tags
+
+Polybuzz publishes no background and no personality field, which left cards with an empty Personality block. The tag tree was already being fetched for the card's tag list, so it was read more carefully: every tag files under one of four parents, and `Personalidad` holds 41 temperament words the creator picks by hand. That is the creator's own characterisation, written by them, published by the site.
+
+The join is honest in a specific way: genre, origin and identity tags stay out of Personality and remain in the tag list, and a real `systemRole` still outranks the tags when one exists. Measured across 10 live bots: 10/10 produced a real Personality block. A tag list is thinner than a written background, but it is the creator's words rather than a guess.
+
+### 0.7.10 – 0.7.12 — an echo is not a field
+
+Three releases, one idea. `getsceneconfig` handed a scene id answers with the intro text compiled as a fallback. Five signed-in scans of bots the account does not own returned a `systemRole` character-for-character identical to `sceneBrief`. That is how the server renders an empty background, not a second field that happens to match. An exact echo is now treated as absence, every route keeps its own answer instead of the first non-empty one, and the panel shows a footnote instead of a banner, because a creator-private field is the normal case.
+
+Scenario came out of the same work: Polybuzz greetings usually open with a stage direction (`*Bangchan es tu esposo*`), which is the creator's own premise. It is promoted verbatim when the record carries no `templateIntro`. Nothing is paraphrased, ever.
+
+---
+
+## Changelog
+
+Full release history with every fix and its reason: **[CHANGELOG.md](CHANGELOG.md)**.
+
+Short version:
+
+| Version | What landed |
+|---|---|
+| 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 88 tests |
+| 0.8.0 | Renamed, six-language docs, credit section, Polybuzz evidence rewrite, Issues enabled |
+| 0.7.13 | Polybuzz Personality from the creator's `Personalidad` tags |
+| 0.7.12 | Polybuzz Scenario from the greeting's stage direction |
+| 0.7.11 | Per-route prompt candidates, so an echo cannot shadow a real background |
+| 0.7.10 | Conversation-aware config chain, quiet panel |
+| 0.7.0 – 0.7.9 | Polybuzz support, end to end |
+| 0.6.0 – 0.6.1 | Emochi reader and prompt-history deep scan |
+| 0.5.0 and before | JanitorAI, inherited from erpocalypse's original extension |
+
+---
+
 ## To-do
 
-- [ ] **Add Character.ai support.**
-- [ ] **Add Saucepan AI support.**
-- [ ] **Add WyvernChat.com support.**
-- [ ] **Priority — Emochi: some bots do not show personality or scenario.** A portion of Emochi characters genuinely store no definition, but the failure rate is higher than the publish-flag measurement predicts. This needs isolating: is it the payload, the parser, or the character?
-- [ ] **Priority — Emochi: example conversations are not being retrieved.** The definition route carries `characterExampleConversation`; it is not reaching the card. This breaks example-dialogue fidelity and has to work before Emochi support can be called finished.
+- [x] **Add Character.ai support.** Done in 0.9.0. Definition still depends on the creator's Definition Visibility switch.
+- [x] **Add Crushon.ai support.** Done in 0.9.0, reading what the page renders.
+- [x] **Priority — Emochi: some bots do not show personality or scenario.** Fixed in 0.9.0. Three causes, all in the parser: the closing instruction was treated as a cut boundary, the section grammar only accepted one exact wording, and the "creator left it blank" note fired on a layout that had not been recognised. Detail in the [changelog](CHANGELOG.md).
+- [x] **Priority — Emochi: example conversations are not being retrieved.** Fixed in 0.9.0. `characterExampleConversation` arrives as an array of turns, and string coercion turned it into `""`. It is now parsed as turns.
+- [x] **Emochi Lab support.** Story, Soundstage and LiveRoom URLs are read against the same prompt record, with the trailing path segment taken as the id. The signed-out session never exposed the Lab's own URL shape, so a surface using a different record type reports the failed route instead of returning half a card.
+- [ ] **Saucepan AI support.**
+- [ ] **WyvernChat.com support.**
+- [ ] **Verify the Character.ai and Crushon.ai readers against a signed-in session.** Both hosts answer Cloudflare `403` to the machine this release was built on, so the contracts are verified but the live read is not. If either reader fails for you, an issue with the panel message is exactly what is needed.
+- [ ] **Chub.ai and Venus.chub.ai support.**
 
-The two Emochi items are prioritised over new site support. A reader that half-works on a supported site is worse than one more site that works fully.
+A reader that half-works on a supported site is worse than one more site that works fully, which is why the two Emochi items sat above new site support until they were closed.
 
 ---
 
@@ -207,7 +324,9 @@ The extension is plain JavaScript with no dependencies and no build step. Edit `
 node --test
 ```
 
-`src/scraper.js` reads JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz. All three fill the same card shape, so exporters and the panel never care which site you are on. `src/exporters.js` converts, `src/panel.js` and `src/panel.css` are the on-page panel, `background.js` is the service worker used for requests a content script cannot make (CORS, forbidden headers).
+`src/scraper.js` reads JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz, `src/cai.js` Character.ai and `src/crushon.js` Crushon.ai. All five fill the same card shape, so exporters and the panel never care which site you are on. `src/exporters.js` converts, `src/panel.js` and `src/panel.css` are the on-page panel, `background.js` is the service worker used for requests a content script cannot make (CORS, forbidden headers).
+
+Two files exist only for the sites that never publish their record to an API: `src/intercept.js` runs in the page's own world (`world: "MAIN"`, `document_start`) and copies what the page already knows into the DOM; `src/harvest.js` collects those payloads and scores every object in them against a list of known field names. Adding a third gated site means one file that names its field keys.
 
 The rest of this section is the site-by-site API record. It is kept in English because it is reference material, and it is the part most likely to go stale when a site ships a change.
 
@@ -252,6 +371,29 @@ Polybuzz is a Nuxt 3 app. The character is server-rendered into the chat page, s
 - **Scenario from the greeting.** The greeting usually opens with a stage direction (`*Bangchan es tu esposo*`). That block is the creator's premise and is promoted to Scenario verbatim when the record carries no `templateIntro`. Nothing is paraphrased.
 - **The model cannot be used as a source either.** Asked to repeat its own opening message word for word — a 1515-character greeting it certainly has in context — the bot produced a new, invented scene instead. Asked for its life story, a Korean idol bot answered as "Dafne, born in a small town in interior Mexico, daughter of farmers". The prompt fields are not reachable by asking.
 - The chat pipeline builds the system prompt **server-side**. A full guest stream (`msgbystreamasguestdelivery`, NDJSON) carries exactly two line shapes — `{i,c}` text chunks and one metadata tail with no prompt, no scene fields and no echo.
+
+### Character.ai API notes
+
+Character.ai publishes nothing without a session, and the record is only ever fetched by the page's own JavaScript. The extension therefore does not ask for it first — it listens.
+
+- `POST https://neo.character.ai/character/v1/get_character_info` with `{"external_id": "<id>", "lang": "en"}` answers `{"character": {...}, "status": "OK"}`. Anonymous, it answers `{"character": [], "status": "NOT_OK", "error": "bad request"}` — the route is alive and refuses the body, not the caller. The header is `Authorization: Token <hex>`, **not** `Bearer`.
+- `POST https://plus.character.ai/chat/character/info/` and `https://plus.character.ai/chat/character/` are the older endpoints and take the same body. Both answer `403` to an unauthenticated caller. The reader tries all three and takes the first that answers.
+- The record carries `name`, `title`, `description`, `greeting`, `definition`, `avatar_file_name`, `external_id`, `user__username` and `has_definition`. `title` is the tagline and `description` is the About text; the card joins them, tagline first.
+- Avatar: `https://characterai.io/i/400/static/avatars/<avatar_file_name>`. The `character.ai` host also serves it, but `characterai.io` is what the app itself uses.
+- **`has_definition` is the flag to trust.** Definition Visibility is a second creator switch, separate from Character Visibility. When it is off the text is not serialised to anyone, and an empty example-dialogue block is the correct output.
+- The `definition` field is free text written for the model, not structured dialogue. It goes into the example-dialogue block because that is the only block it can honestly occupy; nothing is invented to fill personality or scenario.
+- A `MAIN`-world script is required: an isolated content script sees a different `window`, so shadowing `fetch` there observes nothing. The captured header goes into `<meta jaix_token>` and each JSON response is re-dispatched as a `CustomEvent("jaix:payload")` with the body as a **string**, because only primitives cross the world boundary.
+- Replays run through `background.js`, which is not subject to CORS, so the request does not need the site's own origin.
+
+### Crushon.ai API notes
+
+Crushon is client-rendered and sits behind Cloudflare, so there is nothing worth replaying and no public read endpoint to replay it against.
+
+- The character arrives as part of the page's own data: either a Next.js `__NEXT_DATA__` blob or one of the JSON responses the app fetches after hydration. Both are captured.
+- There is no stable field contract across releases, so the reader accepts aliases rather than one shape: `firstMessage` / `first_mes` / `greeting` / `firstMessageText` / `openingMessage`, `description` / `introduction` / `intro` / `profile` / `tagline`, `exampleDialogue` / `exampleDialogs` / `exampleConversation` / `mes_example` / `dialogues`, `avatar` / `avatarUrl` / `avatarURL` / `avatar_url` / `image` / `imageUrl` / `coverUrl`.
+- Relative avatar paths are resolved against `https://crushon.ai`.
+- **The field names are inverted relative to a Tavern card.** Crushon's importer maps card `personality` → Crushon *Introduction* and card `description` → Crushon *Personality*. The reader writes what the site publishes into the card field that means the same thing, so a round trip is stable.
+- Same capture mechanism as Character.ai: `src/intercept.js` in the page world, `src/harvest.js` scoring the collected payloads by how many known keys an object carries. No token is needed because nothing is replayed.
 
 ---
 

@@ -169,6 +169,82 @@ test("parseSystemPrompt splits the compiled Emochi definition into card fields",
   assert.doesNotMatch(parsed.personality, /calls \{\{user\}\}/);
 });
 
+test("exampleDialogue reads Emochi turns, Polybuzz pairs and nested dialogue objects", () => {
+  assert.equal(
+    E.exampleDialogue([
+      { role: "user", content: "Hola." },
+      { role: "assistant", content: "No me mires así." },
+    ]),
+    "{{user}}: Hola.\n\n{{char}}: No me mires así.",
+  );
+  assert.equal(
+    E.exampleDialogue([{ user: "Hola.", ai: "No me mires así." }]),
+    "{{user}}: Hola.\n\n{{char}}: No me mires así.",
+  );
+  assert.equal(
+    E.exampleDialogue({ dialogue: [{ user: "Hola.", ai: "No." }] }),
+    "{{user}}: Hola.\n\n{{char}}: No.",
+  );
+  assert.equal(E.exampleDialogue([{ isUser: true, text: "Hola." }]), "{{user}}: Hola.");
+  assert.equal(E.exampleDialogue([{ content: "Solo yo." }]), "{{char}}: Solo yo.");
+  assert.equal(E.exampleDialogue("Text as written."), "Text as written.");
+  assert.equal(E.exampleDialogue(null), "");
+});
+
+test("mergeCreator reads characterExampleConversation as turns, not only as a string", () => {
+  const card = E.normalizePrompt({ title: "Hermione", description: "Lover." });
+  const filled = E.mergeCreator(card, {
+    characterExampleConversation: [{ user: "Hola.", ai: "Hola a ti." }],
+  });
+  assert.equal(filled, true);
+  assert.equal(card.fields.exampleDialogue, "{{user}}: Hola.\n\n{{char}}: Hola a ti.");
+});
+
+test("parseSystemPrompt recognises drifted section headings", () => {
+  const parsed = E.parseSystemPrompt(
+    "Mira's name: Mira.\nPersonality: Dry, watchful.\nBackground: Raised by the sea.\n" +
+      "Scenario: A lighthouse at dawn.\nExample dialogue:\n{{user}}: Hi.\n{{char}}: Mm.",
+  );
+  assert.equal(parsed.personality, "Dry, watchful.");
+  assert.equal(parsed.characterBackground, "Raised by the sea.");
+  assert.equal(parsed.scenario, "A lighthouse at dawn.");
+  assert.match(parsed.characterExampleConversation, /\{\{char\}\}: Mm\./);
+});
+
+test("parseSystemPrompt keeps sections that sit above a quoted do-not-write line", () => {
+  const parsed = E.parseSystemPrompt(
+    "Ada's name: Ada.\nAda's personality: Precise.\n" +
+      "Ada's background: She quotes the rule in her examples: Do not write as {{user}}.\n" +
+      "scenario of role-play: A workshop.",
+  );
+  assert.equal(parsed.personality, "Precise.");
+  assert.match(parsed.characterBackground, /quotes the rule/);
+  assert.equal(parsed.scenario, "A workshop.");
+});
+
+test("currentCharacterId reads character and Lab URLs", () => {
+  const original = globalThis.location;
+  const at = (pathname) => {
+    globalThis.location = { pathname, search: "" };
+    return E.currentCharacterId();
+  };
+  try {
+    assert.equal(at("/character/mrs-morgan-8793148e"), "mrs-morgan-8793148e");
+    assert.equal(at("/character/mrs-morgan-8793148e/chat"), "mrs-morgan-8793148e");
+    assert.equal(at("/lab/story/the-lighthouse"), "the-lighthouse");
+    assert.equal(at("/lab/liveroom/round-table"), "round-table");
+    assert.equal(at("/lab/story"), null);
+    assert.equal(at("/lab"), null);
+    assert.equal(at("/explore"), null);
+    globalThis.location = { pathname: "/lab/soundstage/waves", search: "" };
+    assert.equal(E.isLabPage(), true);
+    globalThis.location = { pathname: "/character/x", search: "" };
+    assert.equal(E.isLabPage(), false);
+  } finally {
+    globalThis.location = original;
+  }
+});
+
 test("parseSystemPrompt handles one-line prompts, empty sections and plain prompts", () => {
   const oneLine = E.parseSystemPrompt(
     "Sophia's name: Sophia.Sophia calls {{user}} by {{user}}.Sophia's personality: Sweet and possessive.",

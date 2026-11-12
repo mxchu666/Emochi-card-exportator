@@ -2,7 +2,9 @@
 
 [English](README.md) · [Español](README.es.md) · [日本語](README.ja.md) · **Italiano** · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Un'estensione per browser che legge un personaggio da **JanitorAI**, **Emochi** o **Polybuzz** e lo salva come scheda personaggio portabile, così puoi farne un backup o portarlo su un altro frontend. Nessun account, nessuna compilazione, nessun server. Funziona nel tuo browser, con la tua sessione.
+Un'estensione per browser che legge un personaggio da **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** o **Crushon.ai** e lo salva come scheda personaggio portabile, così puoi farne un backup o portarlo su un altro frontend. Nessun account, nessuna compilazione, nessun server. Funziona nel tuo browser, con la tua sessione.
+
+**Novità in 0.9.0:** lettori Character.ai e Crushon.ai, dialoghi di esempio di Polybuzz, un parser Emochi che ha smesso di perdere campi, ed Emochi Lab. Tutti i dettagli nel [changelog](CHANGELOG.md) e nel [devlog](#devlog).
 
 > Gratis e open source. Se ti è utile e vuoi sostenere il lavoro originale, dai un'occhiata a [inkwell.rip](https://inkwell.rip). È quello che tiene in vita strumenti come questo.
 
@@ -42,8 +44,13 @@ L'estensione è composta da quattro piccoli pezzi con un compito ciascuno, e da 
 pagina del sito
    │
    ├─ src/scraper.js    legge JanitorAI
-   ├─ src/emochi.js     legge Emochi
-   └─ src/polybuzz.js   legge Polybuzz
+   ├─ src/emochi.js     legge Emochi (pagine personaggio e Lab)
+   ├─ src/polybuzz.js   legge Polybuzz
+   ├─ src/cai.js        legge Character.ai
+   ├─ src/crushon.js    legge Crushon.ai
+   │       ▲
+   │       └─ src/intercept.js + src/harvest.js
+   │          (siti che consegnano il record solo al proprio client)
            │
            ▼
      un oggetto scheda
@@ -56,7 +63,7 @@ pagina del sito
            └─ src/panel.js      ──▶ l'interfaccia in pagina: elenco blocchi, caselle, pulsanti
 ```
 
-1. **Leggere.** Il lettore del sito su cui ti trovi raccoglie il personaggio. Ognuno lo fa a modo suo, perché ogni sito espone una superficie diversa: JanitorAI ha un'API JSON interna, Emochi ha un backend Next.js con un prompt compilato, Polybuzz ha un payload Nuxt renderizzato lato server più un'API REST.
+1. **Leggere.** Il lettore del sito su cui ti trovi raccoglie il personaggio. Ognuno lo fa a modo suo, perché ogni sito espone una superficie diversa: JanitorAI ha un'API JSON interna, Emochi ha un backend Next.js con un prompt compilato, Polybuzz ha un payload Nuxt renderizzato lato server più un'API REST, mentre Character.ai e Crushon.ai consegnano il record solo alla propria pagina — per questi due l'estensione intercetta ciò che la pagina ha già scaricato invece di chiederlo.
 2. **Normalizzare.** Il record grezzo viene appiattito nell'oggetto scheda qui sopra. Qui si traducono i nomi dei campi: `sceneBrief` di Polybuzz diventa `description`, `speechText` diventa `greeting`, `templateIntro` diventa `scenario`. Nulla viene inventato. Se un campo non è pubblicato, resta vuoto.
 3. **Mostrare.** Il pannello elenca ogni blocco trovato con casella e anteprima, così puoi togliere una riga di jailbreak o un prompt di sistema finito dentro. Il contatore in alto (`x/y kept`) dice esattamente cosa verrà scritto.
 4. **Esportare.** `toBlocks()` trasforma i blocchi spuntati nel formato scelto. L'esportatore è indipendente dal sito: non ha mai sentito parlare di Emochi o Polybuzz, conosce solo l'oggetto scheda. È per questo che ogni sito ottiene i cinque formati gratis.
@@ -120,6 +127,34 @@ Una scheda Polybuzz esce con ciò che il sito pubblica:
 | Gender | `sceneGender`, come riga `Gender: Male/Female/Non-binary` nella descrizione |
 | Tag, avatar, nome, autore | il record della scena |
 
+### Character.ai
+
+1. Apri un personaggio su [character.ai](https://character.ai) con la sessione attiva (`character.ai/character/...`).
+2. Lascia che la pagina finisca di caricare, poi **Extract card** → **Quick scan**.
+3. Esporta.
+
+| Campo della scheda | Origine in Character.ai |
+|---|---|
+| Nome, autore, avatar | il record del personaggio |
+| Description | `title` (lo slogan) seguito da `description` (il testo «About») |
+| Greeting | `greeting` |
+| Dialogo di esempio | `definition` — la definizione in testo libero dell'autore, quando è pubblica |
+
+**Sulla definizione.** Character.ai nasconde la definizione di un personaggio dietro un secondo interruttore dell'autore, **Definition Visibility**, separato dalla visibilità del personaggio. Quando è spento, il sito non invia il testo a nessuno, quindi il blocco del dialogo di esempio esce vuoto e il pannello lo dice in una nota a piè di pagina. Tutti gli altri campi ci sono comunque.
+
+Il lettore lavora osservando le richieste della pagina stessa: un piccolo script nel mondo della pagina (`src/intercept.js`) copia l'header `Authorization` in un tag nascosto e ritrasmette ogni risposta JSON come evento DOM, che il lettore raccoglie. Non modifica mai una richiesta e non ne invia una propria con il tuo token. Quando la pagina non ha ancora fatto la chiamata, il lettore ripete gli stessi tre endpoint che usa il sito, tramite il service worker dell'estensione.
+
+### Crushon.ai
+
+1. Apri un personaggio su [crushon.ai](https://crushon.ai) (`crushon.ai/character/...`).
+2. Lascia che la pagina finisca di caricare, poi **Extract card** → **Quick scan**.
+3. Esporta.
+
+Crushon è interamente renderizzato lato client, quindi il lettore legge il record che la pagina ha già renderizzato invece di chiamare un'API. Gli alias dei campi coprono ogni grafia che il sito ha usato tra le versioni: `firstMessage` / `first_mes` / `greeting`, `description` / `introduction` / `intro`, `avatar` / `avatarUrl` / `image`, `mes_example` / `exampleDialogue` / `dialogue`. Se la pagina non ha ancora richiesto il personaggio, ricaricala e riscansiona.
+
+**Nota sui nomi dei campi.** L'importatore di Crushon mappa una scheda Tavern al contrario: la `personality` della scheda diventa l'*Introduction* di Crushon, e la `description` della scheda diventa la *Personality* di Crushon. Il lettore riporta ciò che Crushon pubblica nel campo che significa la stessa cosa sulla scheda, così il passaggio per entrambi gli strumenti lascia il testo dov'era.
+| Tag, avatar, nome, autore | il record della scena |
+
 ---
 
 ## Polybuzz: le informazioni di background non sono recuperabili. Ecco perché.
@@ -155,18 +190,103 @@ Un breve resoconto, perché la forma del processo spiega perché i limiti sopra 
 8. **Tenere il pannello zitto.** Un campo privato dell'autore mancante è il caso normale, non un errore. Il pannello mostra una nota a piè di pagina, non un banner. Solo un guasto reale (disconnesso, nessuna rotta che risponde) riceve un messaggio.
 9. **Testare tutto ciò che è testabile.** `node --test` copre i lettori, il normalizzatore, gli esportatori e il costruttore di blocchi. 71 test al momento della scrittura. Ogni affermazione API in questo README è stata verificata sui siti dal vivo, e quelle non verificabili sono marcate come tali.
 10. **Scriverlo.** La sezione per sviluppatori esiste perché la prossima persona non debba ri-derivare tutto.
+11. **Riutilizzare prima di scrivere.** Character.ai e Crushon.ai consegnano il record solo al proprio JavaScript, quindi un solo meccanismo copre entrambi: uno sniffer nel mondo della pagina e una scansione con punteggio dei payload. Un file nuovo per sito, più due condivisi, e gli esportatori non sono stati toccati.
+12. **Citare la fonte di un approccio.** Il pattern di intercettazione viene dall'[esportatore di taquanta](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), e il credito sta in cima al file e in questo README, non solo in un messaggio di commit.
+13. **Dire ciò che non è verificato.** Entrambi i siti nuovi rispondono `403` di Cloudflare a una macchina senza browser, quindi i contratti sono documentati e la lettura dal vivo no. È scritto in tre punti invece di essere sorvolato.
 
 **Questo strumento è in sviluppo attivo e continuerà a ricevere aggiornamenti.** Si aggiungono siti, si riparano lettori rotti e le note API vengono corrette quando un sito cambia. Se qualcosa si rompe, di solito è perché un sito ha cambiato la forma del payload, e si può sistemare.
 
 ---
 
+## Devlog
+
+Il resoconto di come si è arrivati davvero a ogni versione: cosa è stato provato, cosa ha fallito e cosa ha insegnato il fallimento. Il più recente per primo. La versione breve è nel [changelog](CHANGELOG.md); questa è quella lunga.
+
+### 0.9.0 — due siti chiusi, un solo meccanismo, e un parser Emochi con tre bug
+
+**Prima Emochi, perché era la priorità.** C'erano due segnalazioni aperte: personalità e scenario mancanti su alcuni bot, e `characterExampleConversation` che non arrivava mai alla scheda.
+
+Il bug delle conversazioni di esempio è durato dieci minuti. La rotta di definizione restituisce `characterExampleConversation` come **array di turni**, e il lettore ci applicava `String(...)`. Un array diventa `"[object Object],[object Object]"` in alcuni runtime e `""` nell'helper `s()` del normalizzatore — in nessun caso dialogo. Ora viene analizzato come turni, e il parser accetta `{role, content}`, `{user, ai}`, `{isUser, text}` e un wrapper `{dialogue: [...]}`, perché il registratore di Emochi usa la prima forma, gli importatori di schede la seconda, e le altre compaiono in record precedenti a un cambio di schema.
+
+Il bug della personalità ha richiesto più tempo ed erano tre difetti separati impilati:
+
+1. **L'istruzione di chiusura era trattata come un confine.** Ogni prompt compilato termina con `Do not write as {{user}} or assume {{user}}'s reaction or response.` Il lettore tagliava lì e buttava via tutta la coda. È corretto per un prompt che finisce con la regola, cioè quello che produce il compilatore. È sbagliato nel momento in cui un autore cita la regola dentro il proprio background o il proprio dialogo di esempio, cosa che succede più spesso di quanto si pensi: c'è chi incolla la regola nel proprio esempio di proposito, per insegnarla al modello. Ogni sezione dopo la citazione spariva. La correzione è rimuovere quella frase dove appare e conservare il testo attorno.
+2. **La grammatica delle sezioni accettava una sola formulazione esatta.** I marcatori erano `'s personality:`, `'s background:`, `scenario of role-play:`. Un autore che ha scritto `Personality:` — maiuscola, senza possessivo, perché ha scritto il proprio prompt invece di usare il builder — otteneva un parsing vuoto, e l'intero prompt finiva nel ramo «nessun marcatore, trattalo come personalità». Ora c'è un secondo insieme di marcatori ancorato alla riga che tollera la deriva, e vince la passata che riconosce più sezioni. In caso di parità resta la grammatica stretta, così i prompt prodotti dal compilatore si analizzano esattamente come prima.
+3. **La nota di sezione vuota era una supposizione.** Il lettore diceva «l'autore ha lasciato vuoti personalità e dialogo di esempio» ogni volta che quei campi uscivano bianchi — anche quando il parser non aveva riconosciuto affatto il layout, e quindi erano bianchi per colpa del parser. Ora la nota scatta solo quando è stata riconosciuta anche la riga del nome, cioè quando il layout è stato capito davvero.
+
+Tutti e tre sono coperti da test scritti dalle forme che fallivano, non da quelle che passavano.
+
+**Poi i dialoghi di esempio di Polybuzz.** Il ticket aveva uno screenshot dell'editor *Estilo de diálogo*: le righe con l'avatar accanto sono `{{user}}`, quelle senza sono `{{char}}`. Leggendo il bundle della pagina di creazione la forma è stata confermata: `dialogueStyleObj` è un array di coppie `{user, ai}`, una voce per scambio, e il record di dettaglio lo restituisce sotto `dialogueStyle.dialogue`. Entrambi ora vengono analizzati in righe della scheda. La stringa piatta `conversationExample` è lo stesso dato come `user;ai` per riga, e anche quella forma viene riscritta.
+
+Una trappola: una stringa semplice sotto `dialogueStyle` è l'**etichetta di stile** (`Descriptivo, frases cortas`), non dialogo. La prima versione del parser riscriveva allegramente un'etichetta di stile in `{{char}}: Descriptivo, frases cortas` e la infilava nel blocco esempi. I test l'hanno preso. Ora le stringhe non diventano mai dialogo; solo gli array e il testo `user;ai`.
+
+**Poi Character.ai.** L'approccio viene dall'[esportatore di taquanta](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), che ha risolto lo stesso problema: il record lo chiede solo il JavaScript della pagina, con un header `Authorization: Token <hex>` che l'estensione non può coniare. L'implementazione di riferimento esegue uno script nel mondo della pagina (`MAIN`), intercetta `fetch` e `XMLHttpRequest`, e salva l'header nel DOM. È l'unico modo per vedere un header che il browser aggiunge fuori dal tuo contesto.
+
+Due modifiche. Il token va in un meta tag con namespace proprio invece che in uno che può collidere. E ogni risposta JSON che la pagina riceve viene ritrasmessa come evento DOM che porta una **stringa** — gli oggetti non attraversano il confine tra uno script `MAIN` e un content script isolato, le stringhe sì. Quella singola modifica ha trasformato lo sniffer da «cattura il token e ripeti la chiamata» a «cattura il token *e* la risposta», così il lettore continua a funzionare quando la ripetizione viene rifiutata.
+
+La definizione è il campo interessante. Character.ai la chiude dietro **Definition Visibility**, un secondo interruttore separato dalla visibilità del personaggio, e quando è spento il testo non viene inviato a nessuno. Quindi una scheda con il blocco del dialogo di esempio vuoto è una impostazione dell'autore, non una lettura fallita, e il pannello dice esattamente questo invece di mostrare un errore.
+
+**Poi Crushon.ai.** Interamente renderizzato lato client, dietro un muro anti-bot. Non c'è un'API pubblica da ripetere e le chiamate della pagina portano stato di sessione, quindi il lettore non chiama nulla: percorre i payload che la pagina ha già ricevuto e assegna un punteggio a ogni oggetto in base a quanti nomi di campo noti contiene. Vince il più ricco. Gli alias coprono le grafie usate tra le versioni, perché mancarne una costa l'intero campo.
+
+La parte condivisa dei due lettori è `src/harvest.js`: raccolta dei payload, rilettura del token e la scansione con punteggio. Due lettori nuovi, due file condivisi, zero modifiche a `exporters.js` o `panel.js` — la regola che ogni lettore riempie lo stesso oggetto scheda è ciò che lo ha reso possibile, ed è il motivo per cui il prossimo sito costa un file.
+
+**Cosa non è stato verificato.** Entrambi gli host nuovi rispondono `403` di Cloudflare alla macchina su cui è stato costruito, quindi nessuno dei due lettori è stato esercitato contro un browser con sessione. Ciò che è stato verificato: l'endpoint neo è vivo e risponde `{"status":"NOT_OK","error":"bad request"}` a un id sintetico, cioè la rotta che si lamenta del corpo e non del chiamante. I contratti dei campi vengono dall'implementazione funzionante di taquanta. È scritto come non verificato nel changelog, nella lista To-do e qui, perché un lettore non esercitato è un'affermazione diversa da uno che lo è stato.
+
+### 0.8.0 — il fork prende un nome e sei lingue
+
+Il repository portava ancora il nome originale mentre supportava quattro siti. Rinominato in **Universal Character Card Exporter**, che è ciò che fa. Issues è stato abilitato nello stesso momento, perché la sezione sulla segnalazione bug mandava le persone a una scheda che non esisteva.
+
+La documentazione è passata a sei lingue in una sola passata. Il riferimento API sito per sito resta in inglese e lo dice in cima alla sezione: è materiale di riferimento che invecchia più in fretta, e sei copie di un documento vecchio sono sei volte la manutenzione senza alcun guadagno. Le traduzioni rimandano lì.
+
+La sezione Polybuzz è stata riscritta. Prima diceva che il background «non è recuperabile» come conclusione. Ora l'evidenza sta sotto: l'etichetta privata per design nel form di creazione, la scansione esaustiva delle rotte, il `210002` sul bot di qualcun altro, il test di controllo `ZZZ-123` su due account. Un risultato negativo affermato non vale niente; un risultato negativo con il suo metodo allegato vale qualcosa.
+
+### 0.7.13 — personalità dai tag dell'autore
+
+Polybuzz non pubblica né background né campo personalità, il che lasciava le schede con il blocco Personality vuoto. L'albero dei tag veniva già richiesto per la lista tag della scheda, quindi è stato letto con più attenzione: ogni tag finisce sotto uno di quattro genitori, e `Personalidad` contiene 41 parole di temperamento scelte a mano dall'autore. È la caratterizzazione dell'autore, scritta da lui, pubblicata dal sito.
+
+L'incrocio è onesto in un modo preciso: i tag di genere, origine e identità restano fuori da Personality e rimangono nella lista tag, e un `systemRole` reale ha ancora la precedenza sui tag quando esiste. Misurato su 10 bot dal vivo: 10/10 hanno prodotto un blocco Personality reale. Una lista di tag è più sottile di un background scritto, ma sono parole dell'autore invece di una supposizione.
+
+### 0.7.10 – 0.7.12 — un'eco non è un campo
+
+Tre versioni, un'idea. `getsceneconfig` con un id di scena risponde con il testo di introduzione compilato come fallback. Cinque scansioni con sessione su bot non posseduti dall'account hanno restituito un `systemRole` identico carattere per carattere a `sceneBrief`. È così che il server renderizza un background vuoto, non un secondo campo che per caso coincide. Un'eco esatta ora viene trattata come assenza, ogni rotta conserva la propria risposta invece della prima non vuota, e il pannello mostra una nota a piè di pagina invece di un banner, perché un campo privato dell'autore è il caso normale.
+
+Lo scenario è uscito dallo stesso lavoro: i saluti di Polybuzz spesso si aprono con una didascalia (`*Bangchan es tu esposo*`), che è la premessa dell'autore. Viene promossa alla lettera quando il record non porta `templateIntro`. Non si parafrasa mai nulla.
+
+---
+
+## Changelog
+
+Storia completa delle versioni, con ogni correzione e il suo motivo: **[CHANGELOG.md](CHANGELOG.md)**.
+
+Versione breve:
+
+| Versione | Cosa è arrivato |
+|---|---|
+| 0.9.0 | Lettori Character.ai e Crushon.ai, dialoghi di esempio Polybuzz, correzioni al parser Emochi, Emochi Lab, 88 test |
+| 0.8.0 | Rinomina, documentazione in sei lingue, sezione crediti, riscrittura delle prove Polybuzz, Issues abilitato |
+| 0.7.13 | Personality di Polybuzz dai tag `Personalidad` dell'autore |
+| 0.7.12 | Scenario di Polybuzz dalla didascalia del saluto |
+| 0.7.11 | Candidati per rotta, così un'eco non può nascondere un background reale |
+| 0.7.10 | Catena di configurazione consapevole della conversazione, pannello silenzioso |
+| 0.7.0 – 0.7.9 | Supporto Polybuzz, dall'inizio alla fine |
+| 0.6.0 – 0.6.1 | Lettore Emochi e scansione profonda della cronologia prompt |
+| 0.5.0 e precedenti | JanitorAI, ereditato dall'estensione originale di erpocalypse |
+
+---
+
 ## To-do
 
-- [ ] **Aggiungere il supporto a Character.ai.**
+- [x] **Aggiungere il supporto a Character.ai.** Fatto in 0.9.0. La definizione dipende ancora dall'interruttore Definition Visibility dell'autore.
+- [x] **Aggiungere il supporto a Crushon.ai.** Fatto in 0.9.0, leggendo ciò che la pagina renderizza.
+- [x] **Priorità — Emochi: alcuni bot non mostrano personalità o scenario.** Risolto in 0.9.0. Tre cause, tutte nel parser: l'istruzione di chiusura trattata come confine di taglio, la grammatica delle sezioni che accettava una sola formulazione, e la nota «l'autore l'ha lasciato vuoto» che scattava su un layout non riconosciuto. Dettagli nel [changelog](CHANGELOG.md).
+- [x] **Priorità — Emochi: le conversazioni di esempio non vengono recuperate.** Risolto in 0.9.0. `characterExampleConversation` arriva come array di turni e la conversione a stringa lo riduceva a `""`. Ora viene analizzato come turni.
+- [x] **Supporto Emochi Lab.** Gli URL di Story, Soundstage e LiveRoom vengono letti come lo stesso record di prompt, prendendo l'ultimo segmento del percorso come id. La sessione non autenticata non ha mai mostrato la forma reale degli URL del Lab, quindi una superficie con un tipo di record diverso segnala la rotta fallita invece di restituire mezza scheda.
 - [ ] **Aggiungere il supporto a Saucepan AI.**
 - [ ] **Aggiungere il supporto a WyvernChat.com.**
-- [ ] **Priorità — Emochi: alcuni bot non mostrano personalità o scenario.** Una parte dei personaggi Emochi non salva davvero alcuna definizione, ma il tasso di fallimento resta più alto di quanto preveda la misura del flag di pubblicazione. Va isolato: è il payload, il parser o il personaggio?
-- [ ] **Priorità — Emochi: le conversazioni di esempio non vengono recuperate.** La rotta di definizione trasporta `characterExampleConversation`; non arriva alla scheda. Questo rompe la fedeltà del dialogo di esempio e deve funzionare prima di poter considerare concluso il supporto Emochi.
+- [ ] **Verificare i lettori Character.ai e Crushon.ai con una sessione attiva.** Entrambi gli host rispondono `403` di Cloudflare alla macchina su cui è stata costruita questa versione, quindi i contratti sono verificati ma la lettura dal vivo no. Se uno dei due lettori non funziona per te, un issue con il messaggio del pannello è esattamente ciò che serve.
+- [ ] **Aggiungere il supporto a Chub.ai e Venus.chub.ai.**
+
+Un lettore che funziona a metà su un sito supportato è peggio di un sito in più che funziona del tutto: per questo i due punti Emochi sono rimasti sopra l'aggiunta di nuovi siti finché non sono stati chiusi.
 
 I due punti Emochi hanno priorità sull'aggiunta di nuovi siti. Un lettore che funziona a metà su un sito supportato è peggio di un sito in più che funziona del tutto.
 
@@ -207,7 +327,9 @@ L'estensione è JavaScript puro, senza dipendenze e senza build. Modifica `src/`
 node --test
 ```
 
-`src/scraper.js` legge JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz. Tutti e tre riempiono la stessa forma di scheda, quindi esportatori e pannello non sanno mai su che sito sei. `src/exporters.js` converte, `src/panel.js` e `src/panel.css` sono il pannello in pagina, `background.js` è il service worker per le richieste che un content script non può fare (CORS, header proibiti).
+`src/scraper.js` legge JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz, `src/cai.js` Character.ai e `src/crushon.js` Crushon.ai. Tutti e cinque riempiono la stessa forma di scheda, quindi esportatori e pannello non sanno mai su che sito sei. `src/exporters.js` converte, `src/panel.js` e `src/panel.css` sono il pannello in pagina, `background.js` è il service worker per le richieste che un content script non può fare (CORS, header proibiti).
+
+Due file esistono solo per i siti che non pubblicano mai il proprio record su un'API: `src/intercept.js` gira nel mondo della pagina stessa (`world: "MAIN"`, `document_start`) e copia nel DOM ciò che la pagina già sa; `src/harvest.js` raccoglie quei payload e assegna un punteggio a ogni oggetto contro una lista di nomi di campo noti. Aggiungere un terzo sito chiuso costa un file che dichiara le sue chiavi.
 
 **Il registro API sito per sito è nel README inglese** ([Developer reference](README.md#developer-reference-english-only)). Resta in inglese di proposito: è materiale di riferimento e la parte che invecchia più in fretta quando un sito cambia. Verrà tradotto quando si stabilizza.
 
