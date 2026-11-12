@@ -523,7 +523,38 @@
     return v.map((t) => s(typeof t === "string" ? t : t && (t.tagName || t.name))).filter(Boolean);
   }
 
-  function normalizeScene(scene, profile, owner, config) {
+  // Polybuzz sorts its tags into four parents: Historia, Origen del personaje,
+  // Identidad, Personalidad. The last one is the creator picking words for the
+  // character's temperament - "Frío", "Dominante", "Posesivo" - which is the only
+  // creator-written personality signal the site publishes for a non-owner. The
+  // taxonomy is fetched so the join works in whatever language the browser is in,
+  // and cached for the page's lifetime: one extra call, not one per scan.
+  const TAG_TREE_PATH = "/api/scene/getTagByParam";
+  let traitTagsCache = null;
+
+  function personalityTagNames(tree) {
+    const parents = tree && Array.isArray(tree.sceneTags) ? tree.sceneTags : [];
+    const parent = parents.find(
+      (p) => /personality/i.test(s(p && p.parentEnglishName)) || /personalidad/i.test(s(p && p.parentTagName)),
+    );
+    if (!parent || !Array.isArray(parent.subTagList)) return [];
+    return parent.subTagList.map((t) => s(t && t.tagName)).filter(Boolean);
+  }
+
+  async function fetchTraitTags() {
+    if (traitTagsCache) return traitTagsCache;
+    const cuid = readCuid();
+    try {
+      const body = await postJson(API_BASE + TAG_TREE_PATH, {}, cuid ? { cuid } : {});
+      const names = personalityTagNames(body && body.data);
+      if (names.length) traitTagsCache = names;
+      return names;
+    } catch {
+      return [];
+    }
+  }
+
+  function normalizeScene(scene, profile, owner, config, traitTags) {
     const a = scene && typeof scene === "object" ? scene : {};
     const p = profile && typeof profile === "object" ? profile : {};
     const o = owner && owner.data && typeof owner.data === "object" ? owner.data : {};
@@ -581,6 +612,13 @@
     // can still gain without inventing a word.
     const premise = setting ? "" : premiseBlock(greeting);
 
+    // The creator's own Personalidad tags, matched against the site taxonomy.
+    // They are the closest published stand-in for the private background: the
+    // creator picked the words, so nothing here is inferred.
+    const allTags = [...new Set([...tagNames(a.sceneTags), ...tagNames(p.sceneTags)])];
+    const traitSet = new Set((Array.isArray(traitTags) ? traitTags : []).map((t) => s(t).toLowerCase()));
+    const chosenTraits = background ? [] : allTags.filter((t) => traitSet.has(t.toLowerCase()));
+
     const card = {
       id,
       name: name || "Imported character",
@@ -588,10 +626,15 @@
       avatarUrl: s(a.sceneAvatarUrl) || s(p.sceneAvatarUrl) || s(a.homeCoverUrl) || s(p.homeCoverUrl),
       gender: decodeGender(a.sceneGender !== undefined ? a.sceneGender : p.sceneGender),
       nsfw: false,
-      tags: [...new Set([...tagNames(a.sceneTags), ...tagNames(p.sceneTags)])],
+      tags: allTags,
       fields: {
         description,
-        personality: [background, traits ? "Personality: " + traits : "", style ? "Dialogue style: " + style : ""]
+        personality: [
+          background,
+          chosenTraits.join(", "),
+          traits ? "Personality: " + traits : "",
+          style ? "Dialogue style: " + style : "",
+        ]
           .filter(Boolean)
           .join("\n\n"),
         scenario: setting || premise,
@@ -637,8 +680,14 @@
     if (!background && s(owner && owner.status) !== "login") {
       card.hint =
         "Polybuzz keeps the background (Antecedentes) private to its creator." +
-        (premise
-          ? " Scenario is the opening direction from the creator's own greeting, verbatim."
+        [
+          premise ? " Scenario is the opening direction from the creator's own greeting, verbatim." : "",
+          chosenTraits.length
+            ? " Personality is the tags the creator filed under Personalidad."
+            : "",
+        ].join("") +
+        (premise || chosenTraits.length
+          ? ""
           : " This card carries the intro, greeting, gender and tags the site publishes.");
     }
     return card;
@@ -689,9 +738,15 @@
     // bootstrap - because the first is owner-only and the other two are not.
     if (onProgress) onProgress("Checking the background and dialogue fields...");
     const sceneId = s(scene && scene.secretSceneId) || sceneIdFromSlug(id);
-    const prompt = await fetchPromptFields(sceneId);
+    const [prompt, traitTags] = await Promise.all([fetchPromptFields(sceneId), fetchTraitTags()]);
 
-    return normalizeScene(scene, profile, prompt.detail, { fields: prompt.fields, trace: prompt.trace });
+    return normalizeScene(
+      scene,
+      profile,
+      prompt.detail,
+      { fields: prompt.fields, trace: prompt.trace },
+      traitTags,
+    );
   }
 
   NS.scraper = {
@@ -715,6 +770,8 @@
     postForm,
     labelText,
     premiseBlock,
+    personalityTagNames,
+    fetchTraitTags,
     prologueText,
     normalizeScene,
     decodeGender,

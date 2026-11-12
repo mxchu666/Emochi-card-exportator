@@ -56,6 +56,38 @@ test("premiseBlock lifts the opening stage direction and nothing else", () => {
   assert.equal(P.premiseBlock(null), "");
 });
 
+test("personalityTagNames picks the Personalidad branch of the tag tree", () => {
+  const tree = {
+    sceneTags: [
+      { parentTagName: "Historia", parentEnglishName: "Story", subTagList: [{ tagName: "Romance" }] },
+      { parentTagName: "Personalidad", parentEnglishName: "Personality", subTagList: [{ tagName: "Frío" }, { tagName: "Celoso" }] },
+    ],
+  };
+  assert.deepEqual(P.personalityTagNames(tree), ["Frío", "Celoso"]);
+  assert.deepEqual(P.personalityTagNames({ sceneTags: [{ parentEnglishName: "Story", subTagList: [] }] }), []);
+  assert.deepEqual(P.personalityTagNames(null), []);
+  assert.deepEqual(P.personalityTagNames({}), []);
+});
+
+test("normalizeScene fills personality from the creator's Personalidad tags", () => {
+  const scene = { ...SCENE, sceneTags: ["Cariñoso", "Películas y TV"].map((tagName) => ({ tagName })) };
+  const card = P.normalizeScene(scene, null, null, null, ["Cariñoso", "Celoso"]);
+  assert.equal(card.fields.personality, "Cariñoso");
+  assert.deepEqual(card.tags, ["Cariñoso", "Películas y TV"]);
+});
+
+test("a real background outranks the tag list in personality", () => {
+  const scene = { ...SCENE, sceneTags: [{ tagName: "Cariñoso" }] };
+  const card = P.normalizeScene(
+    scene,
+    null,
+    { status: "ok", data: { systemRole: "Criada en un faro." } },
+    { fields: { systemRole: "Criada en un faro." } },
+    ["Cariñoso"],
+  );
+  assert.equal(card.fields.personality, "Criada en un faro.");
+});
+
 test("normalizeScene falls back to the profile row for name, avatar and creator", () => {
   const card = P.normalizeScene(
     { secretSceneId: "bLgrZ" },
