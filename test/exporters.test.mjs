@@ -117,6 +117,29 @@ test("slug is filesystem-safe", () => {
   assert.equal(X.slug(""), "character");
 });
 
+test("a personality that repeats the description is dropped and noted", () => {
+  const card = sampleCard();
+  card.fields.description = "🖤 ¿Dónde estás?";
+  card.fields.personality = "🖤 ¿Dónde estás?";
+  const blocks = X.toBlocks(card);
+  assert.equal(blocks.filter((b) => b.field === "personality").length, 0);
+  assert.equal(blocks.filter((b) => b.field === "description").length, 1);
+  assert.match(card.note, /duplicate personality block was dropped/);
+  // A second render must not stack the same sentence on the note.
+  X.toBlocks(card);
+  assert.equal(card.note.match(/duplicate personality block was dropped/g).length, 1);
+});
+
+test("only the duplicated paragraph is dropped from a mixed personality", () => {
+  const card = sampleCard();
+  card.fields.description = "A kind demon slayer.";
+  card.fields.personality = "A kind demon slayer.\n\nDetermined; gentle.";
+  const blocks = X.toBlocks(card);
+  const personality = blocks.filter((b) => b.field === "personality").map((b) => b.text);
+  assert.deepEqual(personality, ["Determined; gentle."]);
+  assert.ok(blocks.some((b) => b.field === "description" && b.text === "A kind demon slayer."));
+});
+
 const twoBookCard = () => ({
   name: "Arthur",
   creator: "io",

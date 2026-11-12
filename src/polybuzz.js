@@ -526,7 +526,7 @@
         notes.push(
           "Polybuzz returned an empty background and empty dialogue examples for this character" +
             detail +
-            ". Every signed-in route the app uses was asked; the card carries name, avatar, gender, intro, greeting and tags.",
+            ". Its editor labels the field Antecedentes (Visto en privado) and the server never serialises it to anyone but the creator; the card carries name, avatar, gender, intro, greeting and tags.",
         );
       } else if (status === "login") {
         notes.push(
