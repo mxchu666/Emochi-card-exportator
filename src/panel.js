@@ -525,6 +525,10 @@
         ["inkwell.rip"],
       ),
     ]);
+    // The version is the first question after any fix ships.
+    try {
+      footer.title = "Card extractor " + chrome.runtime.getManifest().version;
+    } catch {}
 
     panel.appendChild(header);
     panel.appendChild(scanSection);

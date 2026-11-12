@@ -107,14 +107,28 @@ test("normalizeScene tells the reader to sign in when the account endpoint asks 
   assert.match(card.note, /Sign in to Polybuzz/);
 });
 
-test("normalizeScene reports an empty answer as empty, not as a failed read", () => {
-  const card = P.normalizeScene(SCENE, null, { status: "ok", data: { systemRole: "" } });
-  assert.match(card.note, /returned an empty background/);
+test("normalizeScene stays quiet when the background is simply not published", () => {
+  const card = P.normalizeScene(SCENE, null, { status: "ok", data: { systemRole: "" } }, {
+    trace: [{ route: "getsceneconfig", status: "ok" }],
+  });
+  assert.equal(card.note, undefined);
+  assert.equal(card.fields.personality, "");
+});
+
+test("a background identical to the intro is treated as absent, not as a personality", () => {
+  const card = P.normalizeScene(SCENE, null, {
+    status: "ok",
+    data: { systemRole: SCENE.sceneBrief },
+  });
+  assert.equal(card.fields.description, SCENE.sceneBrief);
+  assert.equal(card.fields.personality, "");
 });
 
 test("normalizeScene says how to retry when the background lookup never answered", () => {
-  const card = P.normalizeScene(SCENE, null, { status: "error", data: null });
-  assert.match(card.note, /didn't answer the background and dialogue lookups/);
+  const card = P.normalizeScene(SCENE, null, { status: "error", data: null }, {
+    trace: [{ route: "getscenedetail", status: "error" }],
+  });
+  assert.match(card.note, /didn't answer the background lookup/);
 });
 
 test("normalizeScene flags a card that arrived without its greeting", () => {
@@ -187,9 +201,9 @@ test("fetchOwnerScene marks a scene the account does not own as not-owner, not a
     assert.equal(owner.errNo, 210002);
 
     const card = P.normalizeScene(SCENE, null, owner);
-    assert.match(card.note, /code 210002/);
-    assert.match(card.note, /does not own the character \(Erica ★\)/);
-    assert.doesNotMatch(card.note, /Reload/);
+    assert.equal(card.fields.personality, "");
+    // A bot you don't own is the normal case, not an error the panel repeats.
+    assert.equal(card.note, undefined);
   } finally {
     globalThis.fetch = original;
   }
@@ -319,9 +333,10 @@ test("fetchPromptFields asks the two conversation routes when the owner route re
     assert.equal(calls.length, 3);
 
     const card = P.normalizeScene(SCENE, null, prompt.detail, { fields: prompt.fields, trace: prompt.trace });
-    assert.match(card.note, /210002/);
-    assert.match(card.note, /\[getscenedetail 210002, getsceneconfig ok, init ok\]/);
-    assert.match(card.note, /returned an empty background/);
+    // Both conversation routes answered and had nothing to give: the background
+    // is not published, which is not an error and gets no panel line.
+    assert.equal(card.fields.personality, "");
+    assert.equal(card.note, undefined);
   } finally {
     globalThis.fetch = original;
   }
@@ -349,8 +364,7 @@ test("fetchOwnerScene treats the site guard answer as an error, not as an empty 
     assert.equal(owner.status, "error");
     assert.equal(owner.errNo, 5002);
     const card = P.normalizeScene(SCENE, null, owner);
-    assert.match(card.note, /code 5002/);
-  } finally {
+    assert.match(card.note, /code 5002/);  } finally {
     globalThis.fetch = original;
   }
 });

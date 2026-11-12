@@ -473,12 +473,17 @@
     // the first two, so whatever the account endpoints returned fills the gap.
     // Their records use `prologue` and `brief` for the fields the chat page calls
     // `speechText` and `sceneBrief`.
-    const background =
+    const description = s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief) || s(o.brief);
+    // An empty background is not sent as an empty string: the chat config fills
+    // the slot with the intro text, so an exact echo of the intro is the absence
+    // of a background, not a copy of one.
+    const echoed =
       s(c.systemRole) ||
       s(c.characterBackground) ||
       s(o.systemRole) ||
       s(a.systemRole) ||
       s(p.systemRole);
+    const background = echoed === description ? "" : echoed;
     const setting = s(a.templateIntro) || s(o.templateIntro) || s(c.templateIntro);
     // The chat config names its own fields, so the example text can arrive under
     // any of the names the create form or the compiled prompt uses.
@@ -505,7 +510,7 @@
       nsfw: false,
       tags: [...new Set([...tagNames(a.sceneTags), ...tagNames(p.sceneTags)])],
       fields: {
-        description: s(a.sceneBrief) || s(p.sceneBrief) || s(o.sceneBrief) || s(o.brief),
+        description,
         personality: [background, traits ? "Personality: " + traits : "", style ? "Dialogue style: " + style : ""]
           .filter(Boolean)
           .join("\n\n"),
@@ -527,64 +532,21 @@
       notes.push("Polybuzz didn't hand over this character's greeting. Reload its chat page and scan again.");
     }
     if (!background && !examples) {
-      // `getscenedetail` answers 210002 for a signed-in account that does not own
-      // the bot and 120018 when nobody is signed in. Both are the server declining
-      // to serialize the prompt fields, so the note names the code and every route
-      // that was asked instead of pretending the fields were never written.
+      // The background is a creator-private field: the editor itself labels it
+      // "Antecedentes (Visto en privado)". A card missing it is the normal case,
+      // not a failed read, so nothing is said. Only a real block - signed out, or
+      // no route answered at all - earns a line, because both are fixable.
       const trace = (config && Array.isArray(config.trace) ? config.trace : []).filter(Boolean);
-      const names = trace.map((t) => t.route + (t.errNo ? " " + t.errNo : " " + t.status));
-      const detail = names.length ? " [" + names.join(", ") + "]" : "";
       const status = s(owner && owner.status);
-      // A route that answered 200 outranks the edit loader's refusal: it proves
-      // the server walked the record and found nothing to serialize, which is a
-      // different fact from "you are not the owner".
       const answered = trace.find((t) => t.status === "ok");
-      if (answered) {
+      if (status === "login") {
+        notes.push("Sign in to Polybuzz, reload the chat page and scan again to read this character's background.");
+      } else if (!answered && status !== "not-owner") {
+        const code = String((owner && owner.errNo) || "");
         notes.push(
-          "Polybuzz returned an empty background and empty dialogue examples for this character" +
-            detail +
-            ". Its editor labels the field Antecedentes (Visto en privado) and the server never serialises it to anyone but the creator; the card carries name, avatar, gender, intro, greeting and tags.",
-        );
-      } else if (status === "login") {
-        notes.push(
-          "Polybuzz answered the background lookup with code " +
-            LOGIN_REQUIRED +
-            " (not signed in)" +
-            detail +
-            ", so its background text and dialogue examples are missing from this card. " +
-            "Sign in to Polybuzz in this browser, reload the chat page and scan again.",
-        );
-      } else if (status === "not-owner") {
-        const who = card.creator ? " (" + card.creator + ")" : "";
-        notes.push(
-          "Polybuzz answered the background lookup with code " +
-            NOT_EDITABLE +
-            ": this account does not own the character" +
-            who +
-            detail +
-            ". The card carries every field Polybuzz publishes: name, avatar, gender, intro, greeting and tags.",
-        );
-      } else if (status === "ok") {
-        notes.push(
-          "Polybuzz returned an empty background and empty dialogue examples for this character" +
-            detail +
-            ", so the card carries its name, avatar, gender, intro, greeting and tags only.",
-        );
-      } else if (owner && owner.errNo) {
-        const errorDetail = owner.message ? " - " + owner.message : "";
-        notes.push(
-          "Polybuzz refused the background and dialogue lookups for this character (code " +
-            owner.errNo +
-            errorDetail +
-            ")" +
-            detail +
+          "Polybuzz didn't answer the background lookup for this character" +
+            (code ? " (code " + code + ")" : "") +
             ". Reload its chat page and scan again.",
-        );
-      } else {
-        notes.push(
-          "Polybuzz didn't answer the background and dialogue lookups for this character" +
-            detail +
-            ". Scan again from its chat page.",
         );
       }
     }
