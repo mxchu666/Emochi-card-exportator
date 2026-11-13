@@ -212,7 +212,8 @@
         if (match && match.src) return match.src;
       }
     } catch {}
-    return ORIGIN + "/api/v1/image?id=" + encodeURIComponent(imageId);
+    // The public CDN path the page's own og:image points at. No token, no cookies.
+    return ORIGIN + "/cdn/" + encodeURIComponent(imageId) + "/card";
   }
 
   function normalizeCompanion(record, definition, editable) {
@@ -301,7 +302,7 @@
       card.hint =
         "The creator keeps " +
         (closed.length === 1 ? closed[0] : closed.slice(0, -1).join(", ") + " and " + closed[closed.length - 1]) +
-        " behind Definition Visibility, so Saucepan doesn't serve it to the page. Everything the site publishes is on the card.";
+        " behind Definition Visibility, so Saucepan doesn't serve them to the page. Everything the site publishes is on the card.";
     }
     if (!greeting) {
       const said = "No starting message came through: this companion's openings aren't public.";

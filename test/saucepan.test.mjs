@@ -109,6 +109,7 @@ test("normalizeCompanion maps a public record onto the card shape", () => {
 
   assert.equal(card.name, "Kitana, Mileena, and Jade");
   assert.equal(card.creator, "Varakisan");
+  assert.equal(card.avatarUrl, "https://saucepan.ai/cdn/9074e117-69ee-46c2-a8d9-ca8cd2ac89c2/card");
   assert.deepEqual(card.tags, ["female", "any_pov", "Mortal Kombat"]);
   assert.equal(card.nsfw, true);
   assert.equal(card.sourceLabel, "Saucepan.ai card");

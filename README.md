@@ -166,7 +166,7 @@ Crushon is fully client-rendered, so the reader reads the record the page itself
 
 | Card field | Saucepan.ai source |
 |---|---|
-| Name, creator, avatar | the companion record |
+| Name, creator, avatar | the companion record; the portrait resolves to `https://saucepan.ai/cdn/{image id}/card` |
 | Description | the tagline (`short_description`), then Profile → **Description** |
 | Personality | Core → **Information**, plus Advanced → **Advanced Prompt** and **Formatting Instructions** when the creator filled them in |
 | Greeting | the first public entry of Messages → **Starting Messages** |
@@ -461,6 +461,7 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 - Auth is `Authorization: Bearer <jwt>`, read from `localStorage["hallucination/auth_token"]` (refresh token in `hallucination/refresh_token`). A content script shares `localStorage` with the page, so no interception is needed.
 - `GET /api/v2/companions/{id}` is anonymous and answers `{companion: {...}, is_favorited, has_shares, playbook, companion_banner, author_suggested_companions_position}`. A missing id answers `{"error":{"code":"request.not_found","message":"Companion not found."}}`.
 - The companion object: `id`, `author_id`, `author_handle`, `name`, `display_name`, `short_description`, `tags[]`, `fandom_tags[{id, display_name}]`, `image{id}`, `sus`, `very_sus`, `access_level` (`public` | `unlisted` | `private` | `development`), `providers_profile`, `hidden_fields`, `open_definition`, `locked_starting_message`, `has_playbook`, `unlocked_portraits`, the `*_token_count` stats and `full_description_fragments`.
+- **Portraits live on the CDN, not the API.** `image` carries only an id, and `GET /api/v1/image` needs a bearer. The public URL is `https://saucepan.ai/cdn/{image id}/card` — webp, no token, no cookies — which is what the page's own `og:image` points at. `/thumbnail` exists too; `/portrait` is 404.
 - **Description is a shard set.** `{version, mask, fragments: [{key, proof, text}]}`. Keep a fragment when `fnv1a(seed = 0x811c9dc5 ^ rotl(mask,7) ^ rotl(key ^ mask,13), text)` equals `proof`, then sort the survivors by `key ^ mask` and concatenate. Decoys outnumber real shards roughly seven to one and are generated from a fixed word bank. `starting_scenarios_fragments[].message` uses the same structure, one set per scenario, alongside `access_level`, `is_locked`, `id` and `title`.
 - `≠≠≠BLANK_SCENARIO≠≠≠` is the sentinel for an empty scenario slot in the editor record.
 - `GET /api/v1/companion/definition?companion_id=<id>` (bearer) answers `{sections: [{title, content}]}`. The four titles are `Companion Core`, `Example Dialogue`, `Advanced Prompt`, `Response Formatting Instructions`. `hidden_fields` is a bitfield over exactly those four — `16` core, `8` example, `4` advanced, `2` formatting, all four set means fully closed.
