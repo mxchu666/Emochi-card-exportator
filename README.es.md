@@ -4,7 +4,7 @@
 
 Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
 
-**Nuevo en 0.11.0:** las tarjetas entran en Tavo con su imagen — los dos bloques de tarjeta en el PNG, el retrato incrustado en el JSON y el avatar descargado por el service worker, para que un CDN sin cabeceras CORS deje de producir el mosaico de iniciales. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
+**Nuevo en 0.11.1:** el panel muestra la versión que está corriendo y los bloques PNG exactos que escribió, para que «no se detectaron metadatos PNG» se pueda rastrear hasta el archivo o hasta el lector; el JSON ahora lleva también los campos planos V1, que es lo que leen los importadores antiguos. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
 
 > Gratis y de código abierto. Si te resulta útil y quieres apoyar el trabajo original, pásate por [inkwell.rip](https://inkwell.rip). Eso es lo que mantiene vivos este tipo de herramientas.
 
@@ -27,7 +27,7 @@ Este fork lo mantiene **[mxchu666](https://github.com/mxchu666)**. Añade soport
 | Formato | Archivo | Lo leen |
 |---|---|---|
 | Tarjeta SillyTavern | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, la mayoría de frontends |
-| Tarjeta SillyTavern en PNG | `.card.png` | Igual que arriba, con la tarjeta incrustada en el chunk de la imagen |
+| Tarjeta SillyTavern en PNG | `.png` | Igual que arriba, con la tarjeta incrustada en el chunk de la imagen |
 | Lorebook / World Info | `.lorebook.json` | SillyTavern, Tavo |
 | JSON de JanitorAI | `.jai.json` | Lo más cercano al registro original |
 | Texto plano | `.txt` | Cualquier cosa que lea texto |
@@ -54,7 +54,7 @@ página del sitio
                  greeting, altGreetings, exampleDialogue },
        lorebooks[], scriptRefs[] }
            │
-           ├─ src/exporters.js  ──▶ .card.json / .card.png / .lorebook.json / .jai.json / .txt
+           ├─ src/exporters.js  ──▶ .card.json / .png / .lorebook.json / .jai.json / .txt
            └─ src/panel.js      ──▶ la interfaz en la página: lista de bloques, casillas, botones
 ```
 
@@ -295,6 +295,7 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
+| 0.11.1 | El panel muestra la versión en ejecución y los bloques del PNG que escribió; el JSON lleva también los campos planos V1; 107 tests |
 | 0.11.0 | PNG con `chara` + `ccv3`, retratos descargados por el worker para que un CDN sin CORS deje de dar iniciales, JSON con el retrato como data URI; 106 tests |
 | 0.10.0 | Lector de Saucepan.ai: decodificación de fragmentos, dos rutas de lectura, lorebooks, política de proveedores en la nota; 103 tests |
 | 0.9.1 | Character.ai: esquema de autenticación preservado, escalera de lectura en carga fría, respaldo con datos de renderizado; 92 tests |

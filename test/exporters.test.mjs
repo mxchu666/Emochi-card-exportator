@@ -69,6 +69,12 @@ test("tavernCardV2 has the spec envelope and merged fields", () => {
   assert.deepEqual(out.data.tags, ["anime", "adventure"]);
   assert.equal(out.data.character_book.entries.length, 2);
   assert.deepEqual(out.data.character_book.entries[0].keys, ["nichirin"]);
+  // V1 mirror: the flat fields a pre-V2 importer reads
+  assert.equal(out.name, "Tanjiro");
+  assert.equal(out.first_mes, "Hello there.");
+  assert.equal(out.description, "A kind demon slayer.\n\nWears checkered haori.");
+  assert.equal(out.avatar, "https://ella.janitorai.com/bot-avatars/x.png");
+  assert.equal(out.data.avatar, out.avatar);
 });
 
 test("unchecked blocks are excluded from the export", () => {

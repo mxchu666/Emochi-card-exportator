@@ -9,6 +9,16 @@
   let ui = null;
   const state = { card: null, blocks: [], included: new Set(), busy: false, note: "" };
 
+  // The first question after any fix ships is which build is running. It goes
+  // in the footer and in the PNG status line.
+  function version() {
+    try {
+      return "v" + chrome.runtime.getManifest().version;
+    } catch {
+      return "v?";
+    }
+  }
+
   function el(tag, attrs, children) {
     const e = document.createElement(tag);
     if (attrs) {
@@ -300,7 +310,17 @@
         setStatus("Building PNG...", "busy");
         const blob = await exporters.tavernPngV2(card, state.blocks, inc);
         download(base + ".png", blob, "image/png");
-        setStatus("SillyTavern PNG saved.", "ok");
+        // Print what the file actually carries. A reader that answers "no PNG
+        // metadata" for a file listed here is telling you it never read the
+        // chunks, not that the chunks are missing.
+        const report = exporters.describePng(new Uint8Array(await blob.arrayBuffer()));
+        const labels = report.text.length ? report.text.join(" + ") : "no text chunks";
+        const size = Math.max(1, Math.round(blob.size / 1024)) + " KB";
+        const portrait = card.avatarUrl && !card.avatarDataUri ? " - initials tile" : "";
+        setStatus(
+          "PNG saved - " + labels + " - " + size + portrait + " - " + version() + ".",
+          report.text.length ? "ok" : "err",
+        );
       } catch (error) {
         setStatus(error.message || "Couldn't build the PNG.", "err");
       }
@@ -523,6 +543,7 @@
 
     const footer = el("div", { class: "jaix-footer" }, [
       el("span", { text: "Files stay on this device" }),
+      el("span", { class: "jaix-version", text: version() }),
       el(
         "a",
         {

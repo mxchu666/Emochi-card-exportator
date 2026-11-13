@@ -4,7 +4,7 @@
 
 **JanitorAI**、**Emochi**、**Polybuzz**、**Character.ai**、**Crushon.ai**、**Saucepan.ai** のキャラクターを読み取り、持ち運べるキャラクターカードとして保存するブラウザ拡張機能です。バックアップにも、別のフロントエンドへの移行にも使えます。アカウント登録も、ビルドも、サーバーも不要。あなた自身のブラウザで、あなた自身のセッションを使って動きます。
 
-**0.11.0 の新機能：** カードが画像ごと Tavo に入るようになりました。PNG にはカードの両ブロック、JSON には埋め込んだポートレート、アバターは service worker 経由で取得するので、CORS ヘッダーのない CDN でもイニシャルのタイルにならなくなりました。詳細は [changelog](CHANGELOG.md) と [devlog](#devlog) にあります。
+**0.11.1 の新機能：** パネルが実行中のバージョンと書き出した PNG ブロックを表示するので、「No se detectaron metadatos PNG」がファイル側かリーダー側かを切り分けられます。JSON には旧式インポーターが読む V1 のフラットなフィールドも入りました。詳細は [changelog](CHANGELOG.md) と [devlog](#devlog) にあります。
 
 > 無料・オープンソースです。役に立ったら、オリジナルの活動を支援するために [inkwell.rip](https://inkwell.rip) を覗いてみてください。こうしたツールが続くのはそれが理由です。
 
@@ -27,7 +27,7 @@
 | 形式 | ファイル | 読み込めるもの |
 |---|---|---|
 | SillyTavern キャラクターカード | `.card.json` | SillyTavern、Tavo、Agnai、RisuAI、Inkwell、その他ほとんどのフロントエンド |
-| SillyTavern カード（PNG） | `.card.png` | 上と同じ。カードは画像のチャンクに埋め込み |
+| SillyTavern カード（PNG） | `.png` | 上と同じ。カードは画像のチャンクに埋め込み |
 | ロアブック / World Info | `.lorebook.json` | SillyTavern、Tavo |
 | JanitorAI JSON | `.jai.json` | 元のレコードに最も近い形 |
 | プレーンテキスト | `.txt` | テキストを読めるものなら何でも |
@@ -54,7 +54,7 @@
                  greeting, altGreetings, exampleDialogue },
        lorebooks[], scriptRefs[] }
            │
-           ├─ src/exporters.js  ──▶ .card.json / .card.png / .lorebook.json / .jai.json / .txt
+           ├─ src/exporters.js  ──▶ .card.json / .png / .lorebook.json / .jai.json / .txt
            └─ src/panel.js      ──▶ ページ上の UI：ブロック一覧、チェックボックス、書き出しボタン
 ```
 
@@ -295,6 +295,7 @@ Polybuzz は背景も性格フィールドも公開しないため、カード�
 
 | バージョン | 入ったもの |
 |---|---|
+| 0.11.1 | パネルが実行中のバージョンと書き出した PNG ブロックを表示、JSON に V1 のフラットフィールドも追加、107テスト |
 | 0.11.0 | PNG に `chara` + `ccv3`、worker 経由でポートレート取得（CORS なしの CDN でもイニシャルにならない）、JSON にポートレートを data URI で、106テスト |
 | 0.10.0 | Saucepan.ai リーダー：断片のデコード、2つの読み取り経路、ロアブック、プロバイダ方針を注記行に、103テスト |
 | 0.9.1 | Character.ai：認証スキームを保持、コールドロード時の読み取り手順、サーバー描画データのフォールバック、92テスト |

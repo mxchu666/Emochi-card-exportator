@@ -78,11 +78,29 @@ test("tavernPngV2 writes chara and ccv3 tEXt chunks after IHDR", async () => {
     assert.equal(Buffer.from(out.subarray(12, 16)).toString("ascii"), "IHDR");
 
     const chunks = readChunks(Buffer.from(out));
+    // Chub writes the card between IHDR and IDAT; that is the layout Tavo's
+    // documented PNG import path uses, and every chunk-scanning reader sees it.
     assert.deepEqual(
       chunks.map((chunk) => chunk.type),
       ["IHDR", "tEXt", "tEXt", "IDAT", "IEND"],
     );
     assert.ok(chunks.every((chunk) => chunk.crcOk), "every chunk CRC matches zlib.crc32");
+
+    // Replay SillyTavern's own reader (src/character-card-parser.js): collect the
+    // tEXt chunks, take ccv3 if present, base64-decode it.
+    const stRead = (buffer) => {
+      const texts = readChunks(buffer)
+        .filter((chunk) => chunk.type === "tEXt")
+        .map((chunk) => {
+          const [keyword, ...rest] = chunk.payload.toString("latin1").split("\0");
+          return { keyword: keyword.toLowerCase(), text: rest.join("\0") };
+        });
+      const pick = texts.find((entry) => entry.keyword === "ccv3") || texts.find((entry) => entry.keyword === "chara");
+      return pick ? JSON.parse(Buffer.from(pick.text, "base64").toString("utf8")) : null;
+    };
+    const viaTavern = stRead(Buffer.from(out));
+    assert.equal(viaTavern.spec, "chara_card_v3");
+    assert.equal(viaTavern.data.name, "Aveline");
 
     const [v2, v3] = chunks.filter((chunk) => chunk.type === "tEXt").map((chunk) => {
       const [keyword, ...rest] = chunk.payload.toString("latin1").split("\0");
@@ -101,11 +119,39 @@ test("tavernPngV2 writes chara and ccv3 tEXt chunks after IHDR", async () => {
     assert.equal(v3.card.data.name, "Aveline");
     assert.deepEqual(v3.card.data.group_only_greetings, []);
 
-    // the rest of the source PNG (IDAT + IEND) still follows both chunks
+    // the source image data is untouched and still follows both chunks
     assert.deepEqual(
-      Buffer.from(out.subarray(out.length - ONE_PIXEL_PNG.length + 33)),
+      Buffer.from(out.subarray(out.length - (ONE_PIXEL_PNG.length - 33))),
       Buffer.from(ONE_PIXEL_PNG.subarray(33)),
     );
+  } finally {
+    if (hadDocument) globalThis.document = oldDocument;
+    else delete globalThis.document;
+  }
+});
+
+test("describePng reports the chunks and keywords of a built card", async () => {
+  const hadDocument = Object.hasOwn(globalThis, "document");
+  const oldDocument = globalThis.document;
+  globalThis.document = { createElement: () => stubCanvas() };
+
+  try {
+    const card = {
+      name: "Aveline",
+      creator: "storyweaver",
+      avatarUrl: "",
+      nsfw: false,
+      tags: [],
+      fields: { description: "A royal historian.", greeting: "You are late." },
+      lorebooks: [],
+    };
+    const out = new Uint8Array(await (await X.tavernPngV2(card, X.toBlocks(card), null)).arrayBuffer());
+    const report = X.describePng(out);
+    assert.deepEqual(report.text, ["chara", "ccv3"]);
+    assert.equal(report.chunks[0], "IHDR");
+    assert.equal(report.chunks[1], "tEXt");
+    assert.equal(report.chunks[2], "tEXt");
+    assert.equal(report.chunks.at(-1), "IEND");
   } finally {
     if (hadDocument) globalThis.document = oldDocument;
     else delete globalThis.document;

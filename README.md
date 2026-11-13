@@ -4,7 +4,7 @@
 
 A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** or **Saucepan.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-**New in 0.11.0:** cards now import into Tavo with their picture — both card chunks in the PNG, the portrait embedded in the JSON, and the avatar fetched through the service worker so a CDN without CORS headers stops producing the initials tile. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
+**New in 0.11.1:** the panel shows the running version and the exact PNG chunks it wrote, so "no PNG metadata" can be traced to the file or to the reader; the JSON now carries the V1 flat fields as well as V2/V3, which is what older importers read. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -26,11 +26,13 @@ This fork is maintained by **[mxchu666](https://github.com/mxchu666)**. It adds 
 
 | Format | File | Read by |
 |---|---|---|
-| SillyTavern character card | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, most frontends |
-| SillyTavern card as PNG | `.card.png` | Same as above, with the card embedded in the image chunk |
+| SillyTavern character card | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, Chub — V2/V3 readers read `data`, older importers read the flat V1 fields in the same file |
+| Character card as PNG | `.png` | SillyTavern, Tavo, Chub, RisuAI, Agnai. The only container that carries the portrait *and* the card in one file |
 | Lorebook / World Info | `.lorebook.json` | SillyTavern, Tavo |
 | JanitorAI JSON | `.jai.json` | Closest to the original record |
-| Plain text | `.txt` | Anything that reads text |
+| Plain text | `.txt` | Anything that reads text — the only route into platforms with no card importer (Character.ai, Crushon, Polybuzz, Emochi) |
+
+When the target accepts a card at all, send the PNG. A JSON card has no image field in any spec version; a PNG does.
 
 Everything happens locally. Nothing is uploaded, there is no analytics, and no outside code is loaded.
 
@@ -59,7 +61,7 @@ site page
                  greeting, altGreetings, exampleDialogue },
        lorebooks[], scriptRefs[] }
            │
-           ├─ src/exporters.js  ──▶ .card.json / .card.png / .lorebook.json / .jai.json / .txt
+           ├─ src/exporters.js  ──▶ .card.json / .png / .lorebook.json / .jai.json / .txt
            └─ src/panel.js      ──▶ the on-page UI: block list, checkboxes, export row
 ```
 
@@ -187,13 +189,35 @@ Crushon is fully client-rendered, so the reader reads the record the page itself
 
 ## Tavo: why a card arrived without its picture
 
-Two independent faults, both closed in 0.11.0.
+Three faults, closed in 0.11.0 and 0.11.1.
 
-**The PNG was a card, but only in the V2 chunk.** A card PNG carries its JSON in `tEXt` chunks, base64-encoded, under the keyword `chara`. SillyTavern writes two of them: `chara` (spec V2) and `ccv3` (spec V3). This extension wrote `chara` only. Tavo reads `ccv3`, found none, and answered *"No se detectaron metadatos PNG"* on a file that was a perfectly valid card. The export now writes both, in the order and format SillyTavern uses, and the tests check both chunks and their CRCs against `zlib.crc32`.
+**The PNG was a card, but only in the V2 chunk.** A card PNG carries its JSON in `tEXt` chunks, base64-encoded, under the keyword `chara`. SillyTavern writes two of them: `chara` (spec V2) and `ccv3` (spec V3). This extension wrote `chara` only. Tavo reads `ccv3`, found none, and answered *"No se detectaron metadatos PNG"* on a file that was a perfectly valid card. The export now writes both, and the tests check both chunks and their CRCs against `zlib.crc32`.
 
-**The JSON has no picture field, so Tavo showed the placeholder.** The V2/V3 JSON spec is text only; there is no image slot. The exporter now embeds the portrait as a base64 data URI in `avatar` (top level), `data.avatar` and `data.extensions.avatar`, so a frontend that reads any of those gets the image with no network call. Tavo's own JSON importer still creates the character with an empty portrait picker in some builds — when the picture matters, import the PNG, which carries the image and the card as one file.
+**The chunks sit between `IHDR` and `IDAT`, where Chub puts them.** A card has two legal places for the text chunks: before the image data (Chub) or after it, before `IEND` (SillyTavern). A reader that scans the whole file accepts either; a reader that stops at the first `IDAT` only sees the Chub layout, and Chub's download is the route Tavo's own import guide documents. The tests assert `IHDR, tEXt, tEXt, IDAT, IEND` with every CRC verified by zlib.
 
-**The portrait was often the initials tile, not the character.** The old export loaded the avatar through an `<img crossOrigin="anonymous">`. That fails outright when the CDN sends no `Access-Control-Allow-Origin`, and two of these do not send it:
+**The JSON is now two formats in one file.** A V2/V3 reader reads `data`; an older reader — Agnai's import, Pygmalion, the Gradio card loaders — ignores `data` and reads flat `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example`. Both shapes ship in the same JSON, plus the portrait as a base64 data URI in `avatar`, `data.avatar` and `data.extensions.avatar`. The V2/V3 spec has no image field, so Tavo's own JSON import may still leave the portrait picker empty; the PNG is the route that carries picture and card as one file.
+
+### If a reader still says "no PNG metadata"
+
+The panel now tells you what it built. The footer shows the running version, and the status line after a PNG export lists the text chunks in the file:
+
+```
+PNG saved - chara + ccv3 - 486 KB - v0.11.1.
+```
+
+If that line lists both keywords, the file is right and the reader is looking somewhere else. If it does not, the export itself failed. The size is there so the file on disk can be matched against the file the panel just built; `- initials tile` means the portrait could not be fetched and the gradient tile was drawn instead.
+
+The file in the report that prompted this section was checked byte by byte: one `tEXt` chunk, keyword `chara`, placed before `IDAT`, a valid CRC, and no `avatar` key in its JSON. That is the 0.10.0 signature. The 0.11.x exporter always writes two chunks and an `avatar` field. So before anything else:
+
+1. **Check the footer says `v0.11.1`.** If it says `v0.10.x`, the browser is running the old build.
+2. **Re-enable the extension, then reload the tab.** Chrome disables an unpacked extension once when its permissions change, and a tab that was already open keeps the old content script until it is reloaded. Exporting from that tab produces an old file with a new filename, which is exactly what a "still failing" report looks like.
+3. **Re-export.** Files already on disk keep their old bytes. Download the PNG again after the reload.
+
+To check a file directly, its first text chunk must decode to a JSON object with `"spec": "chara_card_v2"`, the second to `"chara_card_v3"`, and `data.avatar` must exist.
+
+### The portrait was often the initials tile, not the character
+
+The old export loaded the avatar through an `<img crossOrigin="anonymous">`. That fails outright when the CDN sends no `Access-Control-Allow-Origin`, and two of these do not send it:
 
 | Site | Portrait host | `Access-Control-Allow-Origin` |
 |---|---|---|
@@ -206,7 +230,7 @@ Two independent faults, both closed in 0.11.0.
 
 The portrait is now fetched by `background.js`, which is not subject to CORS and holds a host permission for each of those hosts, decoded with `createImageBitmap`, and drawn into the 512×512 tile. If the fetch fails, the initials tile is used and the export still succeeds — the same result as before, without the false success of a CORS-mode load that never reached the server.
 
-Because the manifest now names those portrait hosts, Chrome disables the extension once after the update until you re-enable it on the extensions page.
+Because the manifest names those portrait hosts, Chrome disables the extension once after the update until you re-enable it on the extensions page.
 
 ---
 
@@ -254,6 +278,14 @@ A short record, because the shape of the process explains why the limits above a
 ## Devlog
 
 The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.11.1 — the file was from the build before the fix
+
+**The report said the new export still failed. The file said otherwise.** A failing PNG was attached, so the first move was to parse it instead of the code. Chunk list: `IHDR`, one `tEXt` (`chara`, 2170 bytes), `IDAT` repeated, `IEND`. CRC against `zlib.crc32`: valid. Base64 payload: the card. Pillow opens it as 512×512 RGBA and exposes the same text chunk. Nothing wrong with the file except that it has one text chunk instead of two and no `avatar` key in its JSON — which is exactly what 0.10.0 wrote. The 0.11.0 exporter writes `chara` + `ccv3` and an `avatar` field. So the browser was still running the old content script: Chrome disables an unpacked extension when its permissions change, and a tab that was already open keeps the old script until it is reloaded. Exporting from that tab produces an old file with a new name, which looks identical to "the fix did not work".
+
+**The reference card was downloaded and taken apart.** Chub publishes its card as `avatars.charhub.io/.../chara_card_v2.png`, and Tavo's own import guide points users at Chub. That file: `IHDR, tEXt (chara), IDAT…, IEND`, a `data.avatar` field, and a full `character_book`. No `ccv3`. This exporter's layout now matches it with `ccv3` added after `chara` — both chunks before `IDAT`, the position a reader that stops at the first image chunk can still see.
+
+**Two changes came out of it that are worth more than the fix itself.** The panel prints what it built: the footer carries the running version, and a PNG export ends with `PNG saved - chara + ccv3 - v0.11.1.` That turns the next report into evidence. And the JSON now writes the V1 flat fields beside `data`, because the readers that predate V2 never look inside `data` at all — Agnai's importer, Pygmalion, the Gradio loaders. One file, both generations.
 
 ### 0.11.0 — the card was valid, the reader wanted the other chunk
 
@@ -364,6 +396,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
+| 0.11.1 | Panel shows the running version and the PNG chunks it wrote, JSON carries the V1 flat fields too; 107 tests |
 | 0.11.0 | PNG cards carry `chara` + `ccv3`, portraits fetched through the worker so a CORS-less CDN stops producing initials, JSON embeds the portrait as a data URI; 106 tests |
 | 0.10.0 | Saucepan.ai reader: shard decoding, two read paths, lorebooks, provider policy on the note line; 103 tests |
 | 0.9.1 | Character.ai: auth scheme preserved, cold-load reading ladder, flight-data fallback; 92 tests |
@@ -523,9 +556,11 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 ### Card PNG and portrait notes
 
 - A card PNG is the character JSON in `tEXt` chunks, base64-encoded: keyword `chara` for spec V2, `ccv3` for spec V3, inserted directly after `IHDR` and before `IDAT`. Each chunk is length (big-endian) + type + payload + CRC32 over type+payload.
-- Write both. Tavo reads `ccv3` and answers "no PNG metadata" for a `chara`-only file; SillyTavern, Chub and Risu read `chara`.
+- Write both. Tavo reads `ccv3` and answers "no PNG metadata" for a `chara`-only file; SillyTavern, Chub and Risu read `chara`. Chub's own `chara_card_v2.png` was parsed as the reference: `IHDR, tEXt (chara), IDAT…, IEND`.
+- The JSON is emitted as a V2/V3 card with a V1 mirror: `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example` and `avatar` at the top level next to `data`. A V2/V3 reader ignores them; the pre-V2 importers read nothing else.
 - A JSON card cannot carry an image by spec, so the portrait rides as a JPEG data URI (~40 KB at 512×512) at `avatar`, `data.avatar` and `data.extensions.avatar`. Keep a public URL there as the fallback when the bytes could not be fetched.
 - Portrait bytes are pulled by `background.js` (`jaix:image`), not an `<img>`: `image-cdn.flowgpt.com` and `cdn.mokio.ai` send no `Access-Control-Allow-Origin`, which makes a CORS-mode load fail before any bytes arrive. The worker answers base64, and the content script decodes it with `createImageBitmap` so the canvas is never tainted.
+- `describePng()` reads a built file back and returns its chunk list and text keywords; the panel prints them after every PNG export so a reader-side failure is distinguishable from a file-side one.
 
 ---
 

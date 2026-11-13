@@ -151,28 +151,39 @@
             })),
           }
         : undefined;
+    const data = {
+      name: c.name,
+      description: c.description,
+      personality: c.personality,
+      scenario: c.scenario,
+      first_mes: c.greeting,
+      mes_example: c.exampleDialogue,
+      creator_notes: "",
+      system_prompt: "",
+      post_history_instructions: "",
+      alternate_greetings: c.altGreetings || [],
+      tags: c.tags || [],
+      creator: c.creator || "",
+      character_version: "",
+      ...(picture ? { avatar: picture } : {}),
+      extensions: picture ? { avatar: picture } : {},
+      ...(book ? { character_book: book } : {}),
+    };
+    // V1 mirror. A V2/V3 reader ignores these keys; a V1 reader - Agnai's older
+    // importer, Pygmalion, the Gradio card loaders - ignores `data` and reads
+    // only the flat fields. Both shapes in one file costs a few hundred bytes
+    // and removes a whole class of "the text arrived, the character did not".
     return {
       spec: "chara_card_v2",
       spec_version: "2.0",
+      name: data.name,
+      description: data.description,
+      personality: data.personality,
+      scenario: data.scenario,
+      first_mes: data.first_mes,
+      mes_example: data.mes_example,
       ...(picture ? { avatar: picture } : {}),
-      data: {
-        name: c.name,
-        description: c.description,
-        personality: c.personality,
-        scenario: c.scenario,
-        first_mes: c.greeting,
-        mes_example: c.exampleDialogue,
-        creator_notes: "",
-        system_prompt: "",
-        post_history_instructions: "",
-        alternate_greetings: c.altGreetings || [],
-        tags: c.tags || [],
-        creator: c.creator || "",
-        character_version: "",
-        ...(picture ? { avatar: picture } : {}),
-        extensions: picture ? { avatar: picture } : {},
-        ...(book ? { character_book: book } : {}),
-      },
+      data,
     };
   }
 
@@ -184,6 +195,12 @@
     return {
       spec: "chara_card_v3",
       spec_version: "3.0",
+      name: v2.name,
+      description: v2.description,
+      personality: v2.personality,
+      scenario: v2.scenario,
+      first_mes: v2.first_mes,
+      mes_example: v2.mes_example,
       ...(v2.avatar ? { avatar: v2.avatar } : {}),
       data: {
         ...v2.data,
@@ -486,9 +503,16 @@
       throw new Error("The generated image is not a PNG.");
     }
     const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    // Chub writes the card chunk between IHDR and IDAT, and its "download the
+    // PNG" path is the one Tavo documents for importing. SillyTavern writes
+    // between IDAT and IEND, and its reader - plus every fork of it - scans the
+    // whole file, so either position works there. Between IHDR and IDAT is the
+    // position a reader that stops at the first IDAT can still see, so that is
+    // where both chunks go.
     const insertAt = 8 + 12 + view.getUint32(8);
-    // Both chunks, the way SillyTavern writes them. A reader that only knows V3
-    // looks for `ccv3` and answers "no PNG metadata" for a V2-only file.
+    // `chara` (V2) then `ccv3` (V3), base64, in that order. A reader that knows
+    // only V3 looks for `ccv3` and answers "no PNG metadata" when it is absent,
+    // and a reader that knows only V2 looks for `chara`.
     const encoder = new TextEncoder();
     const chunks = [
       pngChunk(
@@ -512,12 +536,36 @@
     return new Blob([out], { type: "image/png" });
   }
 
+  // Reads back the chunks of the file that was just built. The panel prints the
+  // result, so a reader that still says "no PNG metadata" can be told apart from
+  // a file that never carried the chunks in the first place.
+  function describePng(bytes) {
+    const chunks = [];
+    const text = [];
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let at = 8;
+    while (at + 8 <= bytes.length) {
+      const length = view.getUint32(at);
+      const type = String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]);
+      chunks.push(type);
+      if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
+        const payload = bytes.subarray(at + 8, at + 8 + length);
+        const nul = payload.indexOf(0);
+        if (nul > 0) text.push(String.fromCharCode(...payload.subarray(0, nul)));
+      }
+      if (type === "IEND") break;
+      at += 12 + length;
+    }
+    return { chunks, text };
+  }
+
   NS.exporters = {
     toBlocks,
     rebuild,
     tavernCardV2,
     tavernCardV3,
     tavernPngV2,
+    describePng,
     prepareAvatar,
     lorebookJson,
     lorebooksSeparate,

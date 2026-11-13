@@ -4,7 +4,7 @@
 
 Eine Browser-Erweiterung, die einen Charakter von **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** oder **Saucepan.ai** liest und als portable Charakterkarte speichert — zum Sichern oder zum Umziehen auf ein anderes Frontend. Kein Konto, kein Build, kein Server. Sie läuft in deinem Browser, mit deiner eigenen Sitzung.
 
-**Neu in 0.11.0:** Karten kommen mit ihrem Bild in Tavo an — beide Kartenblöcke im PNG, das Portrait im JSON und der Avatar über den Service Worker geholt, damit ein CDN ohne CORS-Header nicht mehr das Initialen-Kachel liefert. Alle Details im [Changelog](CHANGELOG.md) und im [Devlog](#devlog).
+**Neu in 0.11.1:** Das Panel zeigt die laufende Version und die PNG-Blöcke, die es geschrieben hat — damit lässt sich „No se detectaron metadatos PNG" dem Datei oder dem Leser zuordnen; das JSON trägt jetzt auch die flachen V1-Felder, die alte Importeure lesen. Alle Details im [Changelog](CHANGELOG.md) und im [Devlog](#devlog).
 
 > Kostenlos und Open Source. Wenn sie dir hilft und du die ursprüngliche Arbeit unterstützen willst, schau bei [inkwell.rip](https://inkwell.rip) vorbei. Das hält Werkzeuge wie dieses am Leben.
 
@@ -27,7 +27,7 @@ Dieser Fork wird von **[mxchu666](https://github.com/mxchu666)** gepflegt. Er er
 | Format | Datei | Gelesen von |
 |---|---|---|
 | SillyTavern-Charakterkarte | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, die meisten Frontends |
-| SillyTavern-Karte als PNG | `.card.png` | Wie oben, mit der Karte im Bild-Chunk |
+| SillyTavern-Karte als PNG | `.png` | Wie oben, mit der Karte im Bild-Chunk |
 | Lorebook / World Info | `.lorebook.json` | SillyTavern, Tavo |
 | JanitorAI-JSON | `.jai.json` | Am nächsten am Originaldatensatz |
 | Klartext | `.txt` | Alles, was Text lesen kann |
@@ -59,7 +59,7 @@ Seite der Website
                  greeting, altGreetings, exampleDialogue },
        lorebooks[], scriptRefs[] }
            │
-           ├─ src/exporters.js  ──▶ .card.json / .card.png / .lorebook.json / .jai.json / .txt
+           ├─ src/exporters.js  ──▶ .card.json / .png / .lorebook.json / .jai.json / .txt
            └─ src/panel.js      ──▶ die Oberfläche auf der Seite: Blockliste, Checkboxen, Export
 ```
 
@@ -300,6 +300,7 @@ Kurzfassung:
 
 | Version | Was kam |
 |---|---|
+| 0.11.1 | Panel zeigt die laufende Version und die geschriebenen PNG-Blöcke; das JSON trägt auch die flachen V1-Felder; 107 Tests |
 | 0.11.0 | PNG mit `chara` + `ccv3`, Portraits über den Worker geholt, damit ein CDN ohne CORS nicht mehr die Initialen liefert, JSON mit dem Portrait als Data-URI; 106 Tests |
 | 0.10.0 | Leser für Saucepan.ai: Fragment-Dekodierung, zwei Lesepfade, Lorebooks, Provider-Richtlinie in der Hinweiszeile; 103 Tests |
 | 0.9.1 | Character.ai: Auth-Schema beibehalten, Kaltstart-Leiter, Fallback auf gerenderte Daten, 92 Tests |

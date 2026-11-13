@@ -6,6 +6,22 @@ The narrative version — how a decision was reached, what was tried and failed 
 
 ---
 
+## 0.11.1
+
+**The card format was right. The report was a file from the build before it.**
+
+- **The failing file was checked, byte by byte.** The PNG attached to the report has one `tEXt` chunk, keyword `chara`, placed between `IHDR` and `IDAT`, a valid CRC, and its JSON has no `avatar` key at all. That is what 0.10.0 wrote. The 0.11.x exporter always writes `chara` + `ccv3` and an `avatar` field. A second opinion from Pillow: the file opens as 512×512 RGBA and exposes the `chara` text, so the file is valid and the reader was never fed the new build.
+- **The panel now prints the proof.** The footer shows the running version, and a PNG export ends with `PNG saved - chara + ccv3 - 486 KB - v0.11.1.` A reader that still answers "no PNG metadata" for a file listed there is not reading the chunks; a file with no keywords shows `no text chunks` in red. `describePng()` reads the blob that was just built, not a cached copy, and the size lets you match the file on disk. `- initials tile` means the portrait fetch failed and the gradient tile was drawn instead.
+- **The JSON now carries the V1 layout too.** `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example` and `avatar` sit at the top level next to `data`. V2/V3 readers ignore them; Agnai, Pygmalion and the Gradio card loaders read nothing else. Same file, both generations.
+- **Chunk placement documented against the reference.** Chub's `chara_card_v2.png` was downloaded and parsed: `IHDR, tEXt (chara), IDAT…, IEND`. That is the layout Tavo's import guide points at, and the layout this exporter writes, with `ccv3` added after `chara`.
+- Version `0.11.1`.
+
+**Verified:** the attached PNG's chunk list and CRC against `zlib.crc32`; the same file opened by Pillow; Chub's reference card layout; the new export's chunk list `IHDR, tEXt, tEXt, IDAT, IEND` and both payloads decoded back. **Not verified:** an actual Tavo import — no signed-in Android target in this session.
+
+107 tests.
+
+---
+
 ## 0.11.0
 
 **Tavo rejected the PNG and showed no picture for the JSON. Both had the same root: the card was correct, the delivery was not.**
