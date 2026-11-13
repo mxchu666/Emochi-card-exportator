@@ -4,7 +4,7 @@
 
 A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** or **Saucepan.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-**New in 0.11.1:** the panel shows the running version and the exact PNG chunks it wrote, so "no PNG metadata" can be traced to the file or to the reader; the JSON now carries the V1 flat fields as well as V2/V3, which is what older importers read. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
+**New in 0.11.2:** a portrait now survives a dead service worker - the image is fetched through the extension worker, then loaded directly if that fails - and any failure to get it is printed with its reason instead of silently drawing the initials tile. The Character.ai trail names what each endpoint returned. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -148,6 +148,8 @@ The reader works by watching the page's own requests: a small script in the page
 
 When the page has not made the call yet — a cold load of a profile URL is rendered server-side, so there is no response to watch — the reader asks, in this order: the page's own context with the captured header and cookies, the same call through the extension's service worker with cookies, the payloads and the page's server-rendered flight data, then the character page fetched as HTML with the record cut out of the stream. The failure message names every endpoint, transport and status that was tried, so a bug report says which stage refused.
 
+**Since 0.11.2** that trail says what each stage actually returned instead of `no answer`. A 200 counts as nothing unless it carried a character record, so the line now reads `200, no character in body (status,error)` or `200, html page instead of json` — the two shapes a Cloudflare interstitial and a moved endpoint produce. A dead extension context reads `runtime: extension reloaded - reload this tab`, which is the one failure that has nothing to do with Character.ai.
+
 **Fixed in 0.9.1.** Two faults made this fail on a real page (`character.ai/character/piNpVEtc`): the reader rebuilt the auth scheme as `Token` after stripping whatever the page used, so a `Bearer` session was rejected; and the worker transport sent no cookies, so Cloudflare answered 403. The header is now carried through untouched and every transport carries cookies. Detail in the [changelog](CHANGELOG.md).
 
 ### Crushon.ai
@@ -217,18 +219,26 @@ To check a file directly, its first text chunk must decode to a JSON object with
 
 ### The portrait was often the initials tile, not the character
 
-The old export loaded the avatar through an `<img crossOrigin="anonymous">`. That fails outright when the CDN sends no `Access-Control-Allow-Origin`, and two of these do not send it:
+The portrait is the only part of an export that depends on the extension's service worker, so it is the part that fails when the worker is not reachable. Measured with and without an `Origin` header, the portrait hosts behave like this:
 
 | Site | Portrait host | `Access-Control-Allow-Origin` |
 |---|---|---|
-| Emochi | `image-cdn.flowgpt.com`, `cdn.mokio.ai` | **absent** |
+| Emochi | `image-cdn.flowgpt.com`, `cdn.mokio.ai` | `*` when the request carries `Origin` |
 | Polybuzz | `cdn.polyspeak.ai` | `*` |
 | Character.ai | `characterai.io` | `*` |
 | JanitorAI | `ella.janitorai.com` | `*` |
-| Crushon.ai | `cdn.crushon.ai` (cookie-gated) | absent |
+| Crushon.ai | `cdn.crushon.ai` | absent; 403 without the session cookie |
 | Saucepan.ai | `saucepan.ai/cdn/<id>/card` | not needed, same origin |
 
-The portrait is now fetched by `background.js`, which is not subject to CORS and holds a host permission for each of those hosts, decoded with `createImageBitmap`, and drawn into the 512×512 tile. If the fetch fails, the initials tile is used and the export still succeeds — the same result as before, without the false success of a CORS-mode load that never reached the server.
+The 0.11.0 note in this file claimed the Emochi hosts send no CORS header. That probe sent no `Origin`, and these CDNs reflect the header they are given. With a browser in front of them, `image-cdn.flowgpt.com` and `cdn.mokio.ai` answer `Access-Control-Allow-Origin: *`, and a `crossOrigin="anonymous"` image load works — verified in a real Chromium build, not by reading headers.
+
+So the initials tile was never a CORS problem. It was the worker: `chrome.runtime.sendMessage` returns nothing when the extension was reloaded while the tab stayed open, when the host permission was not granted, or when the service worker timed out. The exporter called that a failure and drew the tile, with no way to tell which of the three had happened.
+
+0.11.2 changes three things:
+
+- **A second transport.** The worker is tried first (it is the only route for `cdn.crushon.ai`, which needs the session cookie), then the portrait is loaded as a cross-origin image. Emochi, Polybuzz, Character.ai and JanitorAI now get their picture even with a dead worker.
+- **No permanent latch.** A card that failed its portrait is retried on the next export instead of remembering the failure for the life of the tab.
+- **A reason on screen.** The status line ends with `- initials tile (<reason>)`: `the extension was reloaded - reload this tab`, `http 403`, `decode failed: …`, or `the record has no portrait URL`. A dead extension context is named as such instead of looking like a broken CDN.
 
 Because the manifest names those portrait hosts, Chrome disables the extension once after the update until you re-enable it on the extensions page.
 
@@ -278,6 +288,18 @@ A short record, because the shape of the process explains why the limits above a
 ## Devlog
 
 The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.11.2 — the portrait that only existed in the panel
+
+**Two cards exported as grey letters, and the file said why.** The two Alana Flores PNGs carried `chara` + `ccv3` in the right place, and `data.avatar` held the correct `image-cdn.flowgpt.com` URL. So the card was fine and the picture had never been fetched: `prepareAvatar()` had run, `requestImage()` had come back empty, and the initials tile was drawn. The panel still showed the photo, because the preview is a plain `<img>` and needs no extension machinery.
+
+**The 0.11.0 explanation for that was wrong, and measuring it again showed why.** That release said `image-cdn.flowgpt.com` and `cdn.mokio.ai` send no `Access-Control-Allow-Origin`. The probe behind that claim sent no `Origin` header. Send one — which every browser does — and both hosts answer `Access-Control-Allow-Origin: *`. So the CDN was never the problem; the worker was. A `<img crossOrigin="anonymous">` load of the portrait works, and 0.11.0 had replaced exactly that with a worker call and no fallback.
+
+**Both branches were then exercised in a real browser, not reasoned about.** The extension was copied to a temp directory, given a content script for a local page, and loaded into headless Chromium over CDP. First run: `avatarSource=worker`, a 99 KB data URI, a 526 KB card PNG. Second run: `https://*.flowgpt.com/*` removed from the manifest so the worker could not reach the CDN — `avatarSource=cors`, same bytes, same portrait. That is the failing state from the report, and it now ships the photo.
+
+**What changed.** The worker is still the first transport, because `cdn.crushon.ai` answers 403 without the session cookie and only the worker carries it. The CORS load is the fallback. The permanent `avatarReady` latch is gone, so a card that failed once is retried on the next export. And the status line names the failure — an export whose picture could not be fetched now reads `- initials tile (worker unreachable: the extension was reloaded - reload this tab)` or `- initials tile (http 403)` instead of looking like a design choice.
+
+**The Character.ai error in the same report was the same missing information.** Its trail ended in `no answer` for every worker step, which is what a lost extension context looks like from inside a content script. That reader now reports the runtime error, and a 200 with nothing usable in the body says which shape it got — `200, no character in body (status,error)` or `200, html page instead of json`.
 
 ### 0.11.1 — the file was from the build before the fix
 
@@ -396,6 +418,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
+| 0.11.2 | Portraits survive a dead service worker (worker, then a direct CORS load), failures are named instead of silent, Character.ai trail says what each endpoint returned; 111 tests |
 | 0.11.1 | Panel shows the running version and the PNG chunks it wrote, JSON carries the V1 flat fields too; 107 tests |
 | 0.11.0 | PNG cards carry `chara` + `ccv3`, portraits fetched through the worker so a CORS-less CDN stops producing initials, JSON embeds the portrait as a data URI; 106 tests |
 | 0.10.0 | Saucepan.ai reader: shard decoding, two read paths, lorebooks, provider policy on the note line; 103 tests |
@@ -559,7 +582,7 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 - Write both. Tavo reads `ccv3` and answers "no PNG metadata" for a `chara`-only file; SillyTavern, Chub and Risu read `chara`. Chub's own `chara_card_v2.png` was parsed as the reference: `IHDR, tEXt (chara), IDAT…, IEND`.
 - The JSON is emitted as a V2/V3 card with a V1 mirror: `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example` and `avatar` at the top level next to `data`. A V2/V3 reader ignores them; the pre-V2 importers read nothing else.
 - A JSON card cannot carry an image by spec, so the portrait rides as a JPEG data URI (~40 KB at 512×512) at `avatar`, `data.avatar` and `data.extensions.avatar`. Keep a public URL there as the fallback when the bytes could not be fetched.
-- Portrait bytes are pulled by `background.js` (`jaix:image`), not an `<img>`: `image-cdn.flowgpt.com` and `cdn.mokio.ai` send no `Access-Control-Allow-Origin`, which makes a CORS-mode load fail before any bytes arrive. The worker answers base64, and the content script decodes it with `createImageBitmap` so the canvas is never tainted.
+- Portrait bytes are tried through `background.js` (`jaix:image`) first, then as a `crossOrigin="anonymous"` image. The worker is the only route for `cdn.crushon.ai` (403 without the session cookie); the Emochi and Polybuzz hosts answer `Access-Control-Allow-Origin: *` when the request carries `Origin`, so the direct load covers a dead worker. The worker answers base64 and the content script decodes it with `createImageBitmap`, so the canvas is never tainted.
 - `describePng()` reads a built file back and returns its chunk list and text keywords; the panel prints them after every PNG export so a reader-side failure is distinguishable from a file-side one.
 
 ---

@@ -6,6 +6,22 @@ The narrative version — how a decision was reached, what was tried and failed 
 
 ---
 
+## 0.11.2
+
+**The portrait was missing because the worker was, and nothing said so.**
+
+- **The reported files were parsed first.** Two Emochi cards (`alana-flores`) had `chara` + `ccv3` before `IDAT`, valid CRCs, and a correct `data.avatar` URL on `image-cdn.flowgpt.com` — but the image inside was the gradient initials tile. The card was right; the picture had never been fetched.
+- **The 0.11.0 CORS claim was wrong.** `image-cdn.flowgpt.com` and `cdn.mokio.ai` answer `Access-Control-Allow-Origin: *` when the request carries an `Origin` header. The original probe omitted it. A `crossOrigin="anonymous"` image load works in a browser.
+- **`prepareAvatar` now has two transports.** Worker first (the only route for `cdn.crushon.ai`, which needs the session cookie), then a direct cross-origin image load. Verified in headless Chromium with the extension loaded: worker transport → 526 KB portrait PNG; flowgpt host permission removed → `avatarSource=cors`, same portrait.
+- **No permanent latch.** `avatarReady` marked a card done even when the fetch failed, so a transient worker problem cost the card its picture for the life of the tab. Failures now retry on the next export.
+- **Every failure is named.** The PNG status line ends with `- initials tile (<reason>)`: `the extension was reloaded - reload this tab`, `http 403`, `decode failed: …`, `worker timeout`, `the record has no portrait URL`. The JSON export says the same when the portrait is missing.
+- **Character.ai diagnostics.** The worker transport now surfaces `chrome.runtime.lastError` instead of `no answer`, and a 200 with no character in it reports the body shape (`200, no character in body (…)`, `200, html page instead of json`).
+- Version `0.11.2`.
+
+**Verified:** both avatar transports in a real Chromium build with the extension loaded; `Access-Control-Allow-Origin` on the four portrait hosts with an `Origin` header; 111 tests, including the fallback, the retry and the error text. **Not verified:** a signed-in Emochi or Character.ai session — both hosts answer Cloudflare 403 to this session's egress.
+
+---
+
 ## 0.11.1
 
 **The card format was right. The report was a file from the build before it.**

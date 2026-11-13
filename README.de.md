@@ -4,7 +4,7 @@
 
 Eine Browser-Erweiterung, die einen Charakter von **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** oder **Saucepan.ai** liest und als portable Charakterkarte speichert — zum Sichern oder zum Umziehen auf ein anderes Frontend. Kein Konto, kein Build, kein Server. Sie läuft in deinem Browser, mit deiner eigenen Sitzung.
 
-**Neu in 0.11.1:** Das Panel zeigt die laufende Version und die PNG-Blöcke, die es geschrieben hat — damit lässt sich „No se detectaron metadatos PNG" dem Datei oder dem Leser zuordnen; das JSON trägt jetzt auch die flachen V1-Felder, die alte Importeure lesen. Alle Details im [Changelog](CHANGELOG.md) und im [Devlog](#devlog).
+**Neu in 0.11.2:** Das Portrait überlebt einen ausgefallenen Service Worker — das Bild wird über den Worker der Erweiterung geholt und andernfalls direkt geladen — und jeder Fehler wird mit Grund angezeigt, statt still die Initialen-Kachel zu zeichnen. Die Character.ai-Spur nennt, was jeder Endpunkt zurückgegeben hat. Alle Details im [Changelog](CHANGELOG.md) und im [Devlog](#devlog).
 
 > Kostenlos und Open Source. Wenn sie dir hilft und du die ursprüngliche Arbeit unterstützen willst, schau bei [inkwell.rip](https://inkwell.rip) vorbei. Das hält Werkzeuge wie dieses am Leben.
 
@@ -189,7 +189,7 @@ Zwei getrennte Fehler, beide in 0.11.0 geschlossen.
 
 **Das JSON hat kein Bildfeld.** Die Spezifikation V2/V3 ist reiner Text, deshalb legt Tavo die Figur mit leerem Portrait an. Die Erweiterung bettet das Portrait jetzt als base64-Data-URI in 512×512 (~40 KB) in `avatar`, `data.avatar` und `data.extensions.avatar` ein; liest ein Frontend eines davon, ist das Bild ohne Netzwerkanfrage da. Sind die Bytes nicht zu holen, steht dort die öffentliche URL.
 
-**Das Portrait blieb wegen eines fehlenden Headers bei den Initialen.** Der alte Weg lud den Avatar mit `<img crossOrigin="anonymous">`, was `Access-Control-Allow-Origin` in der Antwort verlangt. `image-cdn.flowgpt.com` und `cdn.mokio.ai`, die beiden Emochi-CDN, senden ihn nicht: Der Ladevorgang scheiterte, bevor ein Byte ankam, und der Export fiel still auf die Initialen-Kachel zurück. Jetzt holt `background.js` die Bytes unter einer Host-Berechtigung — der Worker ist nicht CORS-gebunden —, gibt sie als base64 zurück, und das Content-Skript dekodiert sie mit `createImageBitmap`. `cdn.polyspeak.ai`, `characterai.io` und `ella.janitorai.com` senden den Header; `cdn.crushon.ai` nicht und verlangt zusätzlich Cookies.
+**Das Portrait blieb manchmal bei den Initialen, weil der Worker nicht antwortete.** Der alte Weg lud den Avatar mit `<img crossOrigin="anonymous">`; 0.11.0 ersetzte das durch einen Aufruf des Service Workers ohne Rückfallebene. Die Emochi-CDN senden sehr wohl `Access-Control-Allow-Origin: *`, sobald die Anfrage `Origin` trägt (die frühere Messung tat das nicht) — das Problem war also nie CORS, sondern der Worker. Seit 0.11.2 wird zuerst der Worker versucht — der einzige Weg für `cdn.crushon.ai`, das ein Sitzungs-Cookie verlangt — und bei Fehlschlag das Bild direkt geladen. Kommt es auch so nicht an, nennt das Panel den Grund (`the extension was reloaded - reload this tab`, `http 403`, `decode failed`), statt still die Kachel zu zeichnen.
 
 Chrome deaktiviert die Erweiterung nach dem Update einmal, weil das Manifest Host-Berechtigungen für diese CDN ergänzt. Auf der Erweiterungsseite wieder aktivieren.
 
@@ -300,6 +300,7 @@ Kurzfassung:
 
 | Version | Was kam |
 |---|---|
+| 0.11.2 | Portrait überlebt einen ausgefallenen Worker (Worker, dann direkte Ladung), Fehler werden benannt, die Character.ai-Spur nennt jede Antwort; 111 Tests |
 | 0.11.1 | Panel zeigt die laufende Version und die geschriebenen PNG-Blöcke; das JSON trägt auch die flachen V1-Felder; 107 Tests |
 | 0.11.0 | PNG mit `chara` + `ccv3`, Portraits über den Worker geholt, damit ein CDN ohne CORS nicht mehr die Initialen liefert, JSON mit dem Portrait als Data-URI; 106 Tests |
 | 0.10.0 | Leser für Saucepan.ai: Fragment-Dekodierung, zwei Lesepfade, Lorebooks, Provider-Richtlinie in der Hinweiszeile; 103 Tests |

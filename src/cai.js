@@ -57,6 +57,22 @@
     });
   }
 
+  // A 200 with no character in it is the least useful line a report can carry,
+  // so it says what the body actually was: an HTML challenge, an error envelope,
+  // or a shape the unwrapper does not know.
+  function whyEmpty(reply) {
+    if (!reply) return "no reply";
+    if (reply.error) return reply.error;
+    if (!reply.ok) return "http " + (reply.status || 0);
+    if (reply.body && typeof reply.body === "object") {
+      const keys = Object.keys(reply.body).slice(0, 4).join(",");
+      return "200, no character in body (" + (keys || "empty object") + ")";
+    }
+    const text = String(reply.text || "").trim();
+    if (/^</.test(text)) return "200, html page instead of json";
+    return "200, no character in body";
+  }
+
   // First transport: the page's own context. It carries the site's cookies and
   // runs under the origin the API already allows, which is what the site itself
   // does. Cross-origin, so it only works if the API sends CORS headers — and when
@@ -113,14 +129,21 @@
             credentials: "include",
           },
           (reply) => {
-            void chrome.runtime.lastError;
-            finish(reply || null);
+            const failure = chrome.runtime.lastError;
+            if (failure) {
+              const raw = String(failure.message || "unknown");
+              const plain = /context invalidated|Receiving end does not exist|message port closed/i.test(raw)
+                ? "extension reloaded - reload this tab"
+                : raw;
+              return finish({ ok: false, status: 0, error: "runtime: " + plain });
+            }
+            finish(reply || { ok: false, status: 0, error: "worker sent no reply" });
           },
         );
       } catch {
         return finish(null);
       }
-      setTimeout(() => finish(null), TIMEOUT_MS);
+      setTimeout(() => finish({ ok: false, status: 0, error: "worker timeout" }), TIMEOUT_MS);
     });
   }
 
@@ -144,7 +167,7 @@
           transport === "page"
             ? await pageFetch(url, auth, { external_id: id, lang: "en" })
             : await backgroundFetch(url, auth, { external_id: id, lang: "en" });
-        note(attempts, transport, url, reply, reply && reply.error);
+        note(attempts, transport, url, reply, whyEmpty(reply));
         const parsed = reply && reply.ok ? unwrap(reply.body) : null;
         if (parsed) return { character: parsed, attempts };
       }
@@ -153,7 +176,7 @@
     // header is not what it wants, and an empty Authorization is the right request.
     if (auth) {
       const reply = await pageFetch(NEO, "", { external_id: id, lang: "en" });
-      note(attempts, "page(cookie)", NEO, reply, reply && reply.error);
+      note(attempts, "page(cookie)", NEO, reply, whyEmpty(reply));
       const parsed = reply && reply.ok ? unwrap(reply.body) : null;
       if (parsed) return { character: parsed, attempts };
     }
@@ -178,14 +201,21 @@
         chrome.runtime.sendMessage(
           { type: "jaix:fetch", url, method: "GET", credentials: "include" },
           (reply) => {
-            void chrome.runtime.lastError;
-            finish(reply || null);
+            const failure = chrome.runtime.lastError;
+            if (failure) {
+              const raw = String(failure.message || "unknown");
+              const plain = /context invalidated|Receiving end does not exist|message port closed/i.test(raw)
+                ? "extension reloaded - reload this tab"
+                : raw;
+              return finish({ ok: false, status: 0, error: "runtime: " + plain });
+            }
+            finish(reply || { ok: false, status: 0, error: "worker sent no reply" });
           },
         );
       } catch {
         return finish(null);
       }
-      setTimeout(() => finish(null), TIMEOUT_MS);
+      setTimeout(() => finish({ ok: false, status: 0, error: "worker timeout" }), TIMEOUT_MS);
     });
   }
 
@@ -293,7 +323,7 @@
     if (!record) {
       const err = new Error("no-character");
       const trail = attempts.length
-        ? " Tried: " + attempts.map((a) => a.label + " → " + (a.status || a.error || "no answer")).join("; ") + "."
+        ? " Tried: " + attempts.map((a) => a.label + " → " + (a.error || a.status || "no answer")).join("; ") + "."
         : "";
       err.friendly = auth || readToken()
         ? "Character.ai didn't return this character, and its page didn't carry the record either." + trail + " Reload the page, wait for it to finish loading, then scan again."

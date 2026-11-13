@@ -15,7 +15,7 @@
     try {
       return "v" + chrome.runtime.getManifest().version;
     } catch {
-      return "v?";
+      return "v? - reload this tab";
     }
   }
 
@@ -294,14 +294,25 @@
     }
   }
 
+  // One line that says where the picture came from, or why it did not. The
+  // portrait is the only part of an export that depends on the service worker,
+  // so its failure is the one worth naming.
+  function portraitNote() {
+    const card = state.card;
+    if (!card) return "";
+    if (card.avatarDataUri) return card.avatarSource === "cors" ? " - portrait via CORS" : "";
+    if (!card.avatarUrl) return " - initials tile (record has no portrait)";
+    return " - initials tile (" + (card.avatarError || "portrait not fetched") + ")";
+  }
+
   async function exportAs(kind) {
     const card = state.card;
     if (!card) return;
     const inc = state.included;
     const base = exporters.slug(card.name);
     // Resolve the portrait once for the exports that carry it: the PNG embeds it
-    // and the JSON hands it over as a data URI. A failure is silent and the
-    // initials tile is used instead.
+    // and the JSON hands it over as a data URI. If it fails, the initials tile
+    // is used and the status line says why.
     if ((kind === "png" || kind === "tavern" || kind === "copy") && typeof exporters.prepareAvatar === "function") {
       await exporters.prepareAvatar(card);
     }
@@ -316,9 +327,8 @@
         const report = exporters.describePng(new Uint8Array(await blob.arrayBuffer()));
         const labels = report.text.length ? report.text.join(" + ") : "no text chunks";
         const size = Math.max(1, Math.round(blob.size / 1024)) + " KB";
-        const portrait = card.avatarUrl && !card.avatarDataUri ? " - initials tile" : "";
         setStatus(
-          "PNG saved - " + labels + " - " + size + portrait + " - " + version() + ".",
+          "PNG saved - " + labels + " - " + size + portraitNote() + " - " + version() + ".",
           report.text.length ? "ok" : "err",
         );
       } catch (error) {
@@ -328,6 +338,7 @@
     }
     if (kind === "tavern") {
       download(base + ".card.json", json(exporters.tavernCardV2(card, state.blocks, inc)));
+      if (!card.avatarDataUri) setStatus("SillyTavern JSON saved" + portraitNote() + ".", "err");
     } else if (kind === "lorebook") {
       download(base + ".lorebook.json", json(exporters.lorebookJson(card, state.blocks, inc)));
     } else if (kind === "lorebooks-separate") {

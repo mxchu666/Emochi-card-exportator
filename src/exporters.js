@@ -391,27 +391,79 @@
     return bytes;
   }
 
-  // The worker fetch, not an `<img crossOrigin>`: the CDNs these readers take
-  // portraits from omit `Access-Control-Allow-Origin` (image-cdn.flowgpt.com and
-  // cdn.mokio.ai both do), so a CORS-mode image load fails before a pixel
-  // arrives and the card exports with the initials tile instead of the portrait.
+  // First transport: the service worker. It is the only route for hosts that
+  // gate the image on the session cookie (cdn.crushon.ai answers 403 without
+  // one), and it is not CORS-bound. The Emochi and Polybuzz CDNs also allow a
+  // plain cross-origin load, which is the fallback below.
+  // Returns a reason instead of a silent null: the panel prints it, and the
+  // difference between "the CDN said 403" and "the runtime is gone, reload the
+  // tab" is the whole diagnosis when a portrait export comes out as initials.
   function requestImage(url) {
     return new Promise((resolve) => {
       const runtime = typeof chrome !== "undefined" && chrome.runtime;
-      if (!runtime || typeof runtime.sendMessage !== "function") return resolve(null);
+      if (!runtime || typeof runtime.sendMessage !== "function") {
+        return resolve({ ok: false, error: "no extension runtime - reload the tab" });
+      }
       let settled = false;
       const finish = (value) => {
         if (settled) return;
         settled = true;
         resolve(value);
       };
-      const timer = setTimeout(() => finish(null), 15000);
+      const timer = setTimeout(() => finish({ ok: false, error: "worker timeout" }), 15000);
       try {
         runtime.sendMessage({ type: "jaix:image", url }, (reply) => {
           clearTimeout(timer);
-          if (runtime.lastError || !reply || !reply.ok || !reply.base64) return finish(null);
-          finish({ base64: reply.base64, mime: reply.mime || "image/png" });
+          // A dead service worker (extension reloaded while this tab stayed
+          // open) sets lastError and calls back with undefined. That is the
+          // case the old code swallowed into the initials tile.
+          const failure = runtime.lastError;
+          if (failure) {
+            const raw = String(failure.message || "unknown");
+            const plain = /context invalidated|Receiving end does not exist|message port closed/i.test(raw)
+              ? "the extension was reloaded - reload this tab"
+              : raw;
+            return finish({ ok: false, error: "worker unreachable: " + plain });
+          }
+          if (!reply) return finish({ ok: false, error: "worker sent no reply" });
+          if (!reply.ok) return finish({ ok: false, error: reply.error || "http " + (reply.status || 0) });
+          if (!reply.base64) return finish({ ok: false, error: "worker sent no bytes" });
+          finish({ ok: true, base64: reply.base64, mime: reply.mime || "image/png" });
         });
+      } catch (error) {
+        clearTimeout(timer);
+        finish({ ok: false, error: "worker send failed: " + String((error && error.message) || error) });
+      }
+    });
+  }
+
+  // Second transport, for the CDNs that do send `Access-Control-Allow-Origin`
+  // (cdn.polyspeak.ai, characterai.io, ella.janitorai.com). With crossOrigin set,
+  // a response without the header fires onerror and taints nothing, so this is
+  // safe to try blindly: it either yields a clean image or nothing.
+  function loadImageCors(url) {
+    return new Promise((resolve) => {
+      if (typeof Image !== "function") return resolve(null);
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.decoding = "async";
+      const timer = setTimeout(() => finish(null), 15000);
+      img.onload = () => {
+        clearTimeout(timer);
+        finish(img.naturalWidth ? img : null);
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        finish(null);
+      };
+      try {
+        img.src = url;
       } catch {
         clearTimeout(timer);
         finish(null);
@@ -465,29 +517,60 @@
 
   // Once per card: pull the portrait through the worker, decode it off the
   // document, and keep both the PNG tile and the JSON data URI on the card.
+  // Nothing latches on failure - a card that could not get its picture is tried
+  // again on the next export, because the usual cause is a service worker that
+  // was not running yet.
   async function prepareAvatar(card) {
-    if (!card || typeof card !== "object" || card.avatarReady) return card;
-    card.avatarReady = true;
+    if (!card || typeof card !== "object") return card;
+    if (card.avatarDataUri) return card;
+    if (card.avatarJob) return card.avatarJob;
     const url = typeof card.avatarUrl === "string" ? card.avatarUrl.trim() : "";
-    if (!url) return card;
-    const got = await requestImage(url);
-    if (!got) return card;
-    try {
-      const bytes = bytesFromBase64(got.base64);
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: got.mime }));
-      try {
-        const tile = await drawTile(card.name, bitmap);
-        card.avatarPng = tile.png;
-        card.avatarDataUri = tile.dataUri;
-      } finally {
-        try {
-          bitmap.close();
-        } catch {}
-      }
-    } catch {
-      // Undecodable bytes fall through to the initials tile at export time.
+    if (!url) {
+      card.avatarError = "the record has no portrait URL";
+      return card;
     }
-    return card;
+    card.avatarJob = (async () => {
+      try {
+        const got = await requestImage(url);
+        if (got && got.ok) {
+          try {
+            const bytes = bytesFromBase64(got.base64);
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: got.mime }));
+            try {
+              const tile = await drawTile(card.name, bitmap);
+              card.avatarPng = tile.png;
+              card.avatarDataUri = tile.dataUri;
+              card.avatarSource = "worker";
+              card.avatarError = "";
+            } finally {
+              try {
+                bitmap.close();
+              } catch {}
+            }
+          } catch (error) {
+            card.avatarError = "decode failed: " + String((error && error.message) || error);
+          }
+        } else {
+          card.avatarError = (got && got.error) || "worker failed";
+        }
+        // The worker was unavailable or refused; the CDN may still allow a
+        // direct CORS load, which is the normal case outside Emochi.
+        if (!card.avatarDataUri) {
+          const img = await loadImageCors(url);
+          if (img) {
+            const tile = await drawTile(card.name, img);
+            card.avatarPng = tile.png;
+            card.avatarDataUri = tile.dataUri;
+            card.avatarSource = "cors";
+            card.avatarError = "";
+          }
+        }
+      } finally {
+        card.avatarJob = null;
+      }
+      return card;
+    })();
+    return card.avatarJob;
   }
 
   async function avatarPngBytes(name, card) {
@@ -567,6 +650,9 @@
     tavernPngV2,
     describePng,
     prepareAvatar,
+    requestImage,
+    loadImageCors,
+    drawTile,
     lorebookJson,
     lorebooksSeparate,
     janitorJson,

@@ -4,7 +4,7 @@
 
 Un'estensione per browser che legge un personaggio da **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** e lo salva come scheda personaggio portabile, così puoi farne un backup o portarlo su un altro frontend. Nessun account, nessuna compilazione, nessun server. Funziona nel tuo browser, con la tua sessione.
 
-**Novità in 0.11.1:** il pannello mostra la versione in esecuzione e i blocchi PNG che ha scritto, così «No se detectaron metadatos PNG» si può ricondurre al file o al lettore; il JSON ora porta anche i campi piatti V1, che è quello che leggono gli importatori vecchi. Tutti i dettagli nel [changelog](CHANGELOG.md) e nel [devlog](#devlog).
+**Novità in 0.11.2:** il ritratto sopravvive a un service worker non disponibile — l'immagine viene chiesta al worker dell'estensione e, se fallisce, caricata direttamente — e ogni errore viene stampato con il motivo invece di disegnare in silenzio il riquadro con le iniziali. Il trail di Character.ai dice cosa ha restituito ogni endpoint. Tutti i dettagli nel [changelog](CHANGELOG.md) e nel [devlog](#devlog).
 
 > Gratis e open source. Se ti è utile e vuoi sostenere il lavoro originale, dai un'occhiata a [inkwell.rip](https://inkwell.rip). È quello che tiene in vita strumenti come questo.
 
@@ -189,7 +189,7 @@ Due guasti distinti, entrambi chiusi in 0.11.0.
 
 **Il JSON non ha un campo immagine.** La specifica V2/V3 è solo testo, quindi Tavo crea il personaggio con il ritratto vuoto. L'estensione ora incorpora il ritratto come data URI base64 da 512×512 (~40 KB) in `avatar`, `data.avatar` e `data.extensions.avatar`; se il frontend legge uno di questi, l'immagine compare senza nessuna richiesta di rete. Se i byte non sono recuperabili, viene scritta l'URL pubblico.
 
-**Il ritratto restava sulle iniziali per un'intestazione assente.** La via precedente caricava l'avatar con `<img crossOrigin="anonymous">`, che richiede `Access-Control-Allow-Origin` sulla risposta. `image-cdn.flowgpt.com` e `cdn.mokio.ai`, i due CDN di Emochi, non la inviano: il caricamento falliva prima di ricevere un byte e l'esportazione ripiegava sul riquadro con le iniziali senza avvisare. Ora `background.js` scarica i byte sotto un permesso di host — il worker non è soggetto a CORS —, li restituisce in base64 e il content script li decodifica con `createImageBitmap`. `cdn.polyspeak.ai`, `characterai.io` e `ella.janitorai.com` la intestazione la mandano; `cdn.crushon.ai` no e in più chiede i cookie.
+**Il ritratto a volte restava sulle iniziali perché il worker non rispondeva.** La via precedente caricava l'avatar con `<img crossOrigin="anonymous">`; la 0.11.0 l'ha sostituita con una chiamata al service worker senza riserva. I CDN di Emochi inviano `Access-Control-Allow-Origin: *` quando la richiesta porta `Origin` (la misura precedente non lo portava), quindi il problema non è mai stato CORS: era il worker. Dalla 0.11.2 si prova prima il worker — l'unica via per `cdn.crushon.ai`, che esige il cookie di sessione — e, se fallisce, l'immagine viene caricata direttamente. Se non arriva nemmeno così, il pannello lo dice con il motivo (`the extension was reloaded - reload this tab`, `http 403`, `decode failed`) invece di disegnare il riquadro senza avvisare.
 
 Chrome disattiva l'estensione una volta dopo l'aggiornamento, perché il manifest aggiunge permessi di host per quei CDN. Riattivala nella pagina delle estensioni.
 
@@ -300,6 +300,7 @@ Versione breve:
 
 | Versione | Cosa è arrivato |
 |---|---|
+| 0.11.2 | Il ritratto sopravvive a un worker non disponibile (worker e poi carica diretta), gli errori vengono nominati, il trail di Character.ai dice cosa ha restituito ogni endpoint; 111 test |
 | 0.11.1 | Il pannello mostra la versione in esecuzione e i blocchi del PNG scritto; il JSON porta anche i campi piatti V1; 107 test |
 | 0.11.0 | PNG con `chara` + `ccv3`, ritratti scaricati dal worker così un CDN senza CORS non dà più le iniziali, JSON con il ritratto come data URI; 106 test |
 | 0.10.0 | Lettore Saucepan.ai: decodifica dei frammenti, due rotte di lettura, lorebook, politica dei provider nella nota; 103 test |

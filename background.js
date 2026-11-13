@@ -29,11 +29,11 @@ function base64(buffer) {
   return btoa(binary);
 }
 
-// Portraits come from CDNs that do not answer `Access-Control-Allow-Origin`
-// (`image-cdn.flowgpt.com` and `cdn.mokio.ai` both omit it), so a page-side
-// `crossOrigin = "anonymous"` load fails outright and the card exports with the
-// initials tile. The worker is not CORS-bound, so the bytes are pulled here and
-// handed back as base64 for the exporter to decode into a bitmap.
+// Portraits are tried here first: the worker is not CORS-bound and it carries
+// the session cookie that cdn.crushon.ai requires. The Emochi and Polybuzz CDNs
+// also allow a direct cross-origin image load (they reflect `Origin` into
+// `Access-Control-Allow-Origin`), which the exporter uses when this fails. The
+// bytes are handed back as base64 for the exporter to decode into a bitmap.
 function fetchImage(url, sendResponse) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Universal Character Card Exporter",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "Export a character card from JanitorAI, Emochi, Polybuzz, Character.ai, Crushon.ai or Saucepan.ai to SillyTavern JSON or PNG (both read by Tavo), a lorebook (World Info) JSON, JanitorAI JSON, or plain text. Runs entirely in your browser using your own session - nothing is sent to any server.",
   "icons": {
     "128": "assets/inkwell-mark.png"

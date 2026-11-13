@@ -4,7 +4,7 @@
 
 Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
 
-**Nuevo en 0.11.1:** el panel muestra la versión que está corriendo y los bloques PNG exactos que escribió, para que «no se detectaron metadatos PNG» se pueda rastrear hasta el archivo o hasta el lector; el JSON ahora lleva también los campos planos V1, que es lo que leen los importadores antiguos. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
+**Nuevo en 0.11.2:** el retrato sobrevive a un service worker caído — la imagen se pide por el worker de la extensión y, si eso falla, se carga directamente — y cualquier fallo se imprime con su motivo en vez de dibujar en silencio el mosaico de iniciales. El rastro de Character.ai dice qué devolvió cada endpoint. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
 
 > Gratis y de código abierto. Si te resulta útil y quieres apoyar el trabajo original, pásate por [inkwell.rip](https://inkwell.rip). Eso es lo que mantiene vivos este tipo de herramientas.
 
@@ -184,7 +184,7 @@ Dos fallos distintos, los dos cerrados en 0.11.0.
 
 **El JSON no tiene campo de imagen.** La especificación V2/V3 es solo texto, así que Tavo crea el personaje con el retrato vacío. La extensión ahora incrusta el retrato como data URI base64 de 512×512 (~40 KB) en `avatar`, `data.avatar` y `data.extensions.avatar`; si el frontend lee cualquiera de ellos, la imagen aparece sin ninguna petición de red. Cuando no se pudieron obtener los bytes, se escribe la URL pública.
 
-**El retrato se quedaba en las iniciales por una cabecera ausente.** La ruta anterior cargaba el avatar con `<img crossOrigin="anonymous">`, que exige `Access-Control-Allow-Origin` en la respuesta. `image-cdn.flowgpt.com` y `cdn.mokio.ai`, los dos CDN de Emochi, no la envían: la carga fallaba antes de recibir un solo byte y la exportación caía al mosaico de iniciales sin avisar. Ahora `background.js` descarga los bytes bajo un permiso de host —el worker no está sujeto a CORS—, los devuelve en base64 y el script de contenido los decodifica con `createImageBitmap`. `cdn.polyspeak.ai`, `characterai.io` y `ella.janitorai.com` sí envían la cabecera; `cdn.crushon.ai` la omite y además pide cookies.
+**El retrato a veces salía como iniciales porque el worker no respondía.** La ruta anterior cargaba el avatar con `<img crossOrigin="anonymous">`; la 0.11.0 la sustituyó por una llamada al service worker sin respaldo. Los CDN de Emochi sí envían `Access-Control-Allow-Origin: *` cuando la petición lleva `Origin` (la medición anterior no lo llevaba), así que el problema nunca fue CORS: era el worker. Desde 0.11.2 se intenta primero el worker —la única ruta para `cdn.crushon.ai`, que exige cookie de sesión— y, si falla, la imagen se carga directamente. Si tampoco así llega, el panel lo dice con el motivo (`the extension was reloaded - reload this tab`, `http 403`, `decode failed`) en vez de dibujar el mosaico sin avisar.
 
 Chrome desactiva la extensión una vez tras la actualización, porque el manifiesto añade permisos de host para esos CDN. Vuelve a activarla en la página de extensiones.
 
@@ -295,6 +295,7 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
+| 0.11.2 | El retrato sobrevive a un worker caído (worker y luego carga directa), los fallos se nombran, el rastro de Character.ai dice qué devolvió cada endpoint; 111 tests |
 | 0.11.1 | El panel muestra la versión en ejecución y los bloques del PNG que escribió; el JSON lleva también los campos planos V1; 107 tests |
 | 0.11.0 | PNG con `chara` + `ccv3`, retratos descargados por el worker para que un CDN sin CORS deje de dar iniciales, JSON con el retrato como data URI; 106 tests |
 | 0.10.0 | Lector de Saucepan.ai: decodificación de fragmentos, dos rutas de lectura, lorebooks, política de proveedores en la nota; 103 tests |

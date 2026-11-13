@@ -4,7 +4,7 @@
 
 **JanitorAI**、**Emochi**、**Polybuzz**、**Character.ai**、**Crushon.ai**、**Saucepan.ai** のキャラクターを読み取り、持ち運べるキャラクターカードとして保存するブラウザ拡張機能です。バックアップにも、別のフロントエンドへの移行にも使えます。アカウント登録も、ビルドも、サーバーも不要。あなた自身のブラウザで、あなた自身のセッションを使って動きます。
 
-**0.11.1 の新機能：** パネルが実行中のバージョンと書き出した PNG ブロックを表示するので、「No se detectaron metadatos PNG」がファイル側かリーダー側かを切り分けられます。JSON には旧式インポーターが読む V1 のフラットなフィールドも入りました。詳細は [changelog](CHANGELOG.md) と [devlog](#devlog) にあります。
+**0.11.2 の新機能：** service worker が落ちていてもポートレートが出ます。まず拡張の worker 経由で取得し、失敗したら直接読み込みます。取得できなかった場合は理由を表示し、黙ってイニシャルのタイルを描くことはありません。Character.ai の試行ログは各エンドポイントの応答を表示します。詳細は [changelog](CHANGELOG.md) と [devlog](#devlog) にあります。
 
 > 無料・オープンソースです。役に立ったら、オリジナルの活動を支援するために [inkwell.rip](https://inkwell.rip) を覗いてみてください。こうしたツールが続くのはそれが理由です。
 
@@ -184,7 +184,7 @@ Crushon は完全にクライアント側で描画されるので、リーダー
 
 **JSON には画像のフィールドがありません。** V2/V3 仕様はテキストのみなので、Tavo はポートレートが空のままキャラクターを作ります。そこで 512×512 の JPEG（約40 KB）を data URI として `avatar`、`data.avatar`、`data.extensions.avatar` に埋め込みます。フロントエンドがどれかを読めば、ネットワーク要求なしで画像が出ます。バイトを取得できなかった場合は公開 URL を書きます。
 
-**ポートレートがイニシャルになっていたのはヘッダーがないためです。** 以前は `<img crossOrigin="anonymous">` で読み込んでいましたが、これには `Access-Control-Allow-Origin` が必要です。Emochi の2つの CDN、`image-cdn.flowgpt.com` と `cdn.mokio.ai` はそれを送らないため、1バイトも届く前に読み込みが失敗し、書き出しは黙ってイニシャルのタイルに落ちていました。今は `background.js` がホスト権限でバイトを取得し（worker は CORS の制約を受けません）、base64 で返し、content script が `createImageBitmap` でデコードします。`cdn.polyspeak.ai`、`characterai.io`、`ella.janitorai.com` はヘッダーを送ります。`cdn.crushon.ai` は送らず、さらに cookie を要求します。
+**ポートレートがイニシャルになっていたのは、worker が応答していなかったためです。** 以前は `<img crossOrigin="anonymous">` で読み込んでいましたが、0.11.0 はそれを service worker 呼び出しに置き換え、代替経路を持たせませんでした。Emochi の CDN は `Origin` 付きのリクエストには `Access-Control-Allow-Origin: *` を返します（以前の計測は `Origin` を送っていませんでした）。つまり原因は CORS ではなく worker です。0.11.2 ではまず worker を試し（セッション cookie を要する `cdn.crushon.ai` にとって唯一の経路）、失敗したら画像を直接読み込みます。それでも取得できなければ、黙ってタイルを描く代わりに理由を表示します（`the extension was reloaded - reload this tab`、`http 403`、`decode failed`）。
 
 マニフェストがこれらの CDN のホスト権限を追加するため、更新後に Chrome が拡張機能を一度無効にします。拡張機能ページで再度有効にしてください。
 
@@ -295,6 +295,7 @@ Polybuzz は背景も性格フィールドも公開しないため、カード�
 
 | バージョン | 入ったもの |
 |---|---|
+| 0.11.2 | worker が落ちてもポートレートを取得（worker → 直接読み込み）、失敗理由を表示、Character.ai のログが各応答を表示、111テスト |
 | 0.11.1 | パネルが実行中のバージョンと書き出した PNG ブロックを表示、JSON に V1 のフラットフィールドも追加、107テスト |
 | 0.11.0 | PNG に `chara` + `ccv3`、worker 経由でポートレート取得（CORS なしの CDN でもイニシャルにならない）、JSON にポートレートを data URI で、106テスト |
 | 0.10.0 | Saucepan.ai リーダー：断片のデコード、2つの読み取り経路、ロアブック、プロバイダ方針を注記行に、103テスト |
