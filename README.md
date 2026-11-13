@@ -4,7 +4,7 @@
 
 A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** or **Saucepan.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-**New in 0.10.0:** Saucepan.ai, including the shuffled-shard description the site serves instead of plain text. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
+**New in 0.11.0:** cards now import into Tavo with their picture — both card chunks in the PNG, the portrait embedded in the JSON, and the avatar fetched through the service worker so a CDN without CORS headers stops producing the initials tile. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -185,6 +185,31 @@ Crushon is fully client-rendered, so the reader reads the record the page itself
 
 ---
 
+## Tavo: why a card arrived without its picture
+
+Two independent faults, both closed in 0.11.0.
+
+**The PNG was a card, but only in the V2 chunk.** A card PNG carries its JSON in `tEXt` chunks, base64-encoded, under the keyword `chara`. SillyTavern writes two of them: `chara` (spec V2) and `ccv3` (spec V3). This extension wrote `chara` only. Tavo reads `ccv3`, found none, and answered *"No se detectaron metadatos PNG"* on a file that was a perfectly valid card. The export now writes both, in the order and format SillyTavern uses, and the tests check both chunks and their CRCs against `zlib.crc32`.
+
+**The JSON has no picture field, so Tavo showed the placeholder.** The V2/V3 JSON spec is text only; there is no image slot. The exporter now embeds the portrait as a base64 data URI in `avatar` (top level), `data.avatar` and `data.extensions.avatar`, so a frontend that reads any of those gets the image with no network call. Tavo's own JSON importer still creates the character with an empty portrait picker in some builds — when the picture matters, import the PNG, which carries the image and the card as one file.
+
+**The portrait was often the initials tile, not the character.** The old export loaded the avatar through an `<img crossOrigin="anonymous">`. That fails outright when the CDN sends no `Access-Control-Allow-Origin`, and two of these do not send it:
+
+| Site | Portrait host | `Access-Control-Allow-Origin` |
+|---|---|---|
+| Emochi | `image-cdn.flowgpt.com`, `cdn.mokio.ai` | **absent** |
+| Polybuzz | `cdn.polyspeak.ai` | `*` |
+| Character.ai | `characterai.io` | `*` |
+| JanitorAI | `ella.janitorai.com` | `*` |
+| Crushon.ai | `cdn.crushon.ai` (cookie-gated) | absent |
+| Saucepan.ai | `saucepan.ai/cdn/<id>/card` | not needed, same origin |
+
+The portrait is now fetched by `background.js`, which is not subject to CORS and holds a host permission for each of those hosts, decoded with `createImageBitmap`, and drawn into the 512×512 tile. If the fetch fails, the initials tile is used and the export still succeeds — the same result as before, without the false success of a CORS-mode load that never reached the server.
+
+Because the manifest now names those portrait hosts, Chrome disables the extension once after the update until you re-enable it on the extensions page.
+
+---
+
 ## Polybuzz: the background information cannot be retrieved. Here is why.
 
 Polybuzz's creation guide lists seven things a character is made of: name, gender, short introduction, greeting, tags, **background** and **dialogue style** (plus the sample dialogue that teaches the style). A public page publishes five of them. The other two — `systemRole` (the background, labelled *Antecedentes*) and `conversationExample` (the example dialogues) — are **not sent to anyone except the creator of that character**. This is not a missing endpoint and not something this or any extension can work around, because **the data is assembled server-side and never serialised to a non-owner**.
@@ -229,6 +254,29 @@ A short record, because the shape of the process explains why the limits above a
 ## Devlog
 
 The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.11.0 — the card was valid, the reader wanted the other chunk
+
+**Two reports, one file format.** A PNG export refused by Tavo with *"No se detectaron metadatos PNG"*, and a JSON import that loaded the character but left the portrait empty. Both were reproduced against the file the extension actually writes rather than against the site, which is why the first finding is embarrassing in a useful way.
+
+**The PNG was a valid V2 card.** Chunk order, length fields and CRC32s were checked against `zlib.crc32` byte for byte: signature, `IHDR`, a `tEXt` chunk under the keyword `chara` carrying the base64 JSON, then the image data untouched. Nothing was malformed. What was missing was the second chunk. SillyTavern writes `chara` and `ccv3`; Tavo looks for `ccv3` first and reports no metadata instead of falling back. One chunk was the whole difference between a rejected file and an accepted one. The export now writes both, in that order, and the test asserts the full chunk list `IHDR, tEXt, tEXt, IDAT, IEND` with every CRC verified by zlib rather than by our own CRC routine.
+
+**The JSON never had an image slot to fill.** The V2/V3 spec is text only. Tavo's JSON import therefore always creates the character with the portrait picker empty, which is exactly what the screenshot showed. The only way an image fits inside a JSON file is as a data URI, so the export now embeds a 512×512 JPEG (~40 KB) at `avatar`, `data.avatar` and `data.extensions.avatar`. If a frontend reads any of them, the picture arrives without a network call. Tavo itself is documented as taking the image from the PNG or the picker, so the honest answer for that app is: PNG for picture and card together, JSON for text.
+
+**The avatar was failing before it started.** The old code loaded the portrait with `crossOrigin = "anonymous"`, which requires `Access-Control-Allow-Origin` on the image response. Probing the five CDNs answered the question directly:
+
+```
+image-cdn.flowgpt.com   200 image/webp   acao: (none)     <- Emochi
+cdn.mokio.ai            200 image/jpeg   acao: (none)     <- Emochi
+cdn.polyspeak.ai        200 image/png    acao: *          <- Polybuzz
+characterai.io          400 text/plain   acao: *          <- Character.ai
+ella.janitorai.com      404 text/html    acao: *          <- JanitorAI
+cdn.crushon.ai          403 application/xml acao: (none)  <- Crushon
+```
+
+For Emochi the CORS-mode load never even retrieved a byte, so the export quietly fell back to the initials tile and looked like it had worked. The portrait now goes through `background.js` under a host permission per CDN, comes back as base64, and is decoded with `createImageBitmap`, which needs no CORS and cannot taint the canvas. A failed fetch still falls back to the initials tile, but now a failure means a failed fetch, not a mode mismatch.
+
+**What that costs the user.** Five new host permissions in the manifest, so Chrome disables the extension once on update until it is re-enabled. That is written at the top of the Tavo section because it is the first thing an updating user will hit.
 
 ### 0.10.0 — Saucepan, and the description that arrives in pieces
 
@@ -316,6 +364,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
+| 0.11.0 | PNG cards carry `chara` + `ccv3`, portraits fetched through the worker so a CORS-less CDN stops producing initials, JSON embeds the portrait as a data URI; 106 tests |
 | 0.10.0 | Saucepan.ai reader: shard decoding, two read paths, lorebooks, provider policy on the note line; 103 tests |
 | 0.9.1 | Character.ai: auth scheme preserved, cold-load reading ladder, flight-data fallback; 92 tests |
 | 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 92 tests |
@@ -338,6 +387,7 @@ Short version:
 - [x] **Priority — Emochi: example conversations are not being retrieved.** Fixed in 0.9.0. `characterExampleConversation` arrives as an array of turns, and string coercion turned it into `""`. It is now parsed as turns.
 - [x] **Emochi Lab support.** Story, Soundstage and LiveRoom URLs are read against the same prompt record, with the trailing path segment taken as the id. The signed-out session never exposed the Lab's own URL shape, so a surface using a different record type reports the failed route instead of returning half a card.
 - [x] **Saucepan AI support.** Done in 0.10.0. Public companions export with the Description and any public starting message; the definition and the lorebooks need a signed-in session, and the definition also needs the creator's Definition Visibility switch. The definition and editable routes are documented from the client code that consumes them, not from a signed-in call — if either comes back empty for you, an issue with the panel message is exactly what is needed.
+- [ ] **Tavo JSON import: confirm which avatar field it reads.** The PNG path is verified end to end — both `chara` and `ccv3` chunks, real chunk CRCs, the portrait drawn from worker-fetched bytes. The JSON carries the portrait as a data URI at `avatar`, `data.avatar` and `data.extensions.avatar`; which of those Tavo's own importer reads is unconfirmed, so the PNG stays the documented route when the picture matters.
 - [ ] **WyvernChat.com support.**
 - [ ] **Verify the Character.ai and Crushon.ai readers against a signed-in session.** Both hosts answer Cloudflare `403` to the machine this release was built on, so the contracts are verified but the live read is not. If either reader fails for you, an issue with the panel message is exactly what is needed.
 - [ ] **Chub.ai and Venus.chub.ai support.**
@@ -469,6 +519,13 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 - `providers_profile` / `external_model_policy` is `custom_and_vetted` | `vetted_only` | `internal_only`. It gates the chat's model choice, not profile reads.
 - `GET /api/v2/companions/{id}/lorebooks` (bearer) answers `{lorebooks: [...]}`. `GET /api/v2/lorebooks/{id}/chapters` answers `{chapters: [{id, title, text, ...}]}` — the body field is `text`, not `content`. A chapter carries no trigger list, so the reader uses its title as the key and leaves untitled chapters constant.
 - Companion search (`POST /api/v1/search`) refuses an anonymous caller with `403 auth.permission_denied`; post and collection search do not, which is how a companion id can still be found without a session.
+
+### Card PNG and portrait notes
+
+- A card PNG is the character JSON in `tEXt` chunks, base64-encoded: keyword `chara` for spec V2, `ccv3` for spec V3, inserted directly after `IHDR` and before `IDAT`. Each chunk is length (big-endian) + type + payload + CRC32 over type+payload.
+- Write both. Tavo reads `ccv3` and answers "no PNG metadata" for a `chara`-only file; SillyTavern, Chub and Risu read `chara`.
+- A JSON card cannot carry an image by spec, so the portrait rides as a JPEG data URI (~40 KB at 512×512) at `avatar`, `data.avatar` and `data.extensions.avatar`. Keep a public URL there as the fallback when the bytes could not be fetched.
+- Portrait bytes are pulled by `background.js` (`jaix:image`), not an `<img>`: `image-cdn.flowgpt.com` and `cdn.mokio.ai` send no `Access-Control-Allow-Origin`, which makes a CORS-mode load fail before any bytes arrive. The worker answers base64, and the content script decodes it with `createImageBitmap` so the canvas is never tainted.
 
 ---
 

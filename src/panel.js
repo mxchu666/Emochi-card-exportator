@@ -289,6 +289,12 @@
     if (!card) return;
     const inc = state.included;
     const base = exporters.slug(card.name);
+    // Resolve the portrait once for the exports that carry it: the PNG embeds it
+    // and the JSON hands it over as a data URI. A failure is silent and the
+    // initials tile is used instead.
+    if ((kind === "png" || kind === "tavern" || kind === "copy") && typeof exporters.prepareAvatar === "function") {
+      await exporters.prepareAvatar(card);
+    }
     if (kind === "png") {
       try {
         setStatus("Building PNG...", "busy");

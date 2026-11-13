@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Universal Character Card Exporter",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Export a character card from JanitorAI, Emochi, Polybuzz, Character.ai, Crushon.ai or Saucepan.ai to SillyTavern JSON or PNG (both read by Tavo), a lorebook (World Info) JSON, JanitorAI JSON, or plain text. Runs entirely in your browser using your own session - nothing is sent to any server.",
   "icons": {
     "128": "assets/inkwell-mark.png"
@@ -143,7 +143,18 @@
     "https://character.ai/*",
     "https://www.character.ai/*",
     "https://beta.character.ai/*",
-    "https://characterai.io/*"
+    "https://characterai.io/*",
+    "https://ella.janitorai.com/*",
+    "https://*.flowgpt.com/*",
+    "https://*.mokio.ai/*",
+    "https://*.polyspeak.ai/*",
+    "https://*.crushon.ai/*",
+    "https://crushon.ai/*",
+    "https://www.crushon.ai/*",
+    "https://saucepan.ai/*",
+    "https://*.emochi.com/*",
+    "https://emochi.com/*",
+    "https://www.emochi.com/*"
   ],
   "background": {
     "service_worker": "background.js"

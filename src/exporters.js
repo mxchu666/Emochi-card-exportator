@@ -130,6 +130,11 @@
 
   function tavernCardV2(card, blocks, included) {
     const c = rebuild(card, blocks, included);
+    // A JSON card has no image slot in the spec, so the picture rides as a data
+    // URI in the same field the frontends already read for a remote one. Tavo
+    // only shows an avatar it can resolve; a data URI always resolves.
+    const avatar = typeof card.avatarDataUri === "string" ? card.avatarDataUri : "";
+    const picture = avatar || c.avatarUrl || "";
     const book =
       c.entries.length > 0
         ? {
@@ -149,6 +154,7 @@
     return {
       spec: "chara_card_v2",
       spec_version: "2.0",
+      ...(picture ? { avatar: picture } : {}),
       data: {
         name: c.name,
         description: c.description,
@@ -163,8 +169,27 @@
         tags: c.tags || [],
         creator: c.creator || "",
         character_version: "",
-        extensions: c.avatarUrl ? { avatar: c.avatarUrl } : {},
+        ...(picture ? { avatar: picture } : {}),
+        extensions: picture ? { avatar: picture } : {},
         ...(book ? { character_book: book } : {}),
+      },
+    };
+  }
+
+  // V3 is V2 with a different envelope; every reader that understands V3 reads
+  // V2 too, and a few only look at the `ccv3` PNG chunk, so both are written.
+  function tavernCardV3(card, blocks, included) {
+    const v2 = tavernCardV2(card, blocks, included);
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      spec: "chara_card_v3",
+      spec_version: "3.0",
+      ...(v2.avatar ? { avatar: v2.avatar } : {}),
+      data: {
+        ...v2.data,
+        group_only_greetings: [],
+        creation_date: now,
+        modification_date: now,
       },
     };
   }
@@ -320,104 +345,170 @@
     return chunk;
   }
 
-  async function avatarPngBytes(name, avatarUrl) {
-    const size = 512;
+  const AVATAR_SIZE = 512;
+
+  function paintPlaceholder(ctx, size, name) {
+    const gradient = ctx.createLinearGradient(0, 0, size, size);
+    gradient.addColorStop(0, "#303a54");
+    gradient.addColorStop(1, "#8a6a91");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const initials = String(name || "?")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => [...part][0] || "")
+      .join("")
+      .toUpperCase();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 140px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initials || "?", size / 2, size / 2);
+  }
+
+  function bytesFromBase64(value) {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  // The worker fetch, not an `<img crossOrigin>`: the CDNs these readers take
+  // portraits from omit `Access-Control-Allow-Origin` (image-cdn.flowgpt.com and
+  // cdn.mokio.ai both do), so a CORS-mode image load fails before a pixel
+  // arrives and the card exports with the initials tile instead of the portrait.
+  function requestImage(url) {
+    return new Promise((resolve) => {
+      const runtime = typeof chrome !== "undefined" && chrome.runtime;
+      if (!runtime || typeof runtime.sendMessage !== "function") return resolve(null);
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), 15000);
+      try {
+        runtime.sendMessage({ type: "jaix:image", url }, (reply) => {
+          clearTimeout(timer);
+          if (runtime.lastError || !reply || !reply.ok || !reply.base64) return finish(null);
+          finish({ base64: reply.base64, mime: reply.mime || "image/png" });
+        });
+      } catch {
+        clearTimeout(timer);
+        finish(null);
+      }
+    });
+  }
+
+  async function drawTile(name, bitmap) {
+    const size = AVATAR_SIZE;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Couldn't create the PNG canvas.");
 
-    function placeholder() {
-      const gradient = ctx.createLinearGradient(0, 0, size, size);
-      gradient.addColorStop(0, "#303a54");
-      gradient.addColorStop(1, "#8a6a91");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, size, size);
-      const initials = String(name || "?")
-        .trim()
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((part) => [...part][0] || "")
-        .join("")
-        .toUpperCase();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 140px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(initials || "?", size / 2, size / 2);
+    paintPlaceholder(ctx, size, name);
+    let drawn = false;
+    if (bitmap && bitmap.width && bitmap.height) {
+      ctx.clearRect(0, 0, size, size);
+      const scale = Math.max(size / bitmap.width, size / bitmap.height);
+      ctx.drawImage(
+        bitmap,
+        (size - bitmap.width * scale) / 2,
+        (size - bitmap.height * scale) / 2,
+        bitmap.width * scale,
+        bitmap.height * scale,
+      );
+      drawn = true;
     }
 
-    const encode = () =>
-      new Promise((resolve, reject) => {
-        try {
-          canvas.toBlob(resolve, "image/png");
-        } catch (e) {
-          reject(e);
-        }
-      });
-
-    placeholder();
-    if (avatarUrl) {
+    const blob = await new Promise((resolve) => {
       try {
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.referrerPolicy = "no-referrer";
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("avatar timeout")), 5000);
-          image.onload = () => {
-            clearTimeout(timer);
-            resolve();
-          };
-          image.onerror = () => {
-            clearTimeout(timer);
-            reject(new Error("avatar failed"));
-          };
-          image.src = avatarUrl;
-        });
-        ctx.clearRect(0, 0, size, size);
-        const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
-        ctx.drawImage(
-          image,
-          (size - image.naturalWidth * scale) / 2,
-          (size - image.naturalHeight * scale) / 2,
-          image.naturalWidth * scale,
-          image.naturalHeight * scale,
-        );
+        canvas.toBlob(resolve, "image/png");
       } catch {
-        // A CDN that refuses the cross-origin read leaves the initials tile in place.
-        ctx.clearRect(0, 0, size, size);
-        placeholder();
+        resolve(null);
+      }
+    });
+    if (!blob) throw new Error("Couldn't build the PNG.");
+
+    let dataUri = "";
+    if (drawn) {
+      try {
+        // JPEG keeps the JSON near 40 KB where a PNG tile costs ~300 KB.
+        dataUri = canvas.toDataURL("image/jpeg", 0.9);
+      } catch {
+        dataUri = "";
       }
     }
+    return { png: new Uint8Array(await blob.arrayBuffer()), dataUri };
+  }
 
-    let blob;
+  // Once per card: pull the portrait through the worker, decode it off the
+  // document, and keep both the PNG tile and the JSON data URI on the card.
+  async function prepareAvatar(card) {
+    if (!card || typeof card !== "object" || card.avatarReady) return card;
+    card.avatarReady = true;
+    const url = typeof card.avatarUrl === "string" ? card.avatarUrl.trim() : "";
+    if (!url) return card;
+    const got = await requestImage(url);
+    if (!got) return card;
     try {
-      blob = await encode();
+      const bytes = bytesFromBase64(got.base64);
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: got.mime }));
+      try {
+        const tile = await drawTile(card.name, bitmap);
+        card.avatarPng = tile.png;
+        card.avatarDataUri = tile.dataUri;
+      } finally {
+        try {
+          bitmap.close();
+        } catch {}
+      }
     } catch {
-      // Tainted canvas: drop the avatar and encode the flat tile instead.
-      ctx.clearRect(0, 0, size, size);
-      placeholder();
-      blob = await encode();
+      // Undecodable bytes fall through to the initials tile at export time.
     }
-    if (!blob) throw new Error("Couldn't build the PNG.");
-    return new Uint8Array(await blob.arrayBuffer());
+    return card;
+  }
+
+  async function avatarPngBytes(name, card) {
+    if (card && card.avatarPng) return card.avatarPng;
+    return (await drawTile(name, null)).png;
   }
 
   async function tavernPngV2(card, blocks, included) {
+    await prepareAvatar(card);
     const cardData = tavernCardV2(card, blocks, included);
-    const png = await avatarPngBytes(card.name, card.avatarUrl);
+    const png = await avatarPngBytes(card.name, card);
     if (String.fromCharCode(...png.subarray(12, 16)) !== "IHDR") {
       throw new Error("The generated image is not a PNG.");
     }
     const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
     const insertAt = 8 + 12 + view.getUint32(8);
-    const encoded = bytesToBase64(new TextEncoder().encode(JSON.stringify(cardData)));
-    const metadata = pngChunk("tEXt", new TextEncoder().encode("chara\0" + encoded));
-    const out = new Uint8Array(png.length + metadata.length);
+    // Both chunks, the way SillyTavern writes them. A reader that only knows V3
+    // looks for `ccv3` and answers "no PNG metadata" for a V2-only file.
+    const encoder = new TextEncoder();
+    const chunks = [
+      pngChunk(
+        "tEXt",
+        encoder.encode("chara\0" + bytesToBase64(encoder.encode(JSON.stringify(cardData)))),
+      ),
+      pngChunk(
+        "tEXt",
+        encoder.encode("ccv3\0" + bytesToBase64(encoder.encode(JSON.stringify(tavernCardV3(card, blocks, included))))),
+      ),
+    ];
+    const extra = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    const out = new Uint8Array(png.length + extra);
     out.set(png.subarray(0, insertAt), 0);
-    out.set(metadata, insertAt);
-    out.set(png.subarray(insertAt), insertAt + metadata.length);
+    let at = insertAt;
+    for (const chunk of chunks) {
+      out.set(chunk, at);
+      at += chunk.length;
+    }
+    out.set(png.subarray(insertAt), at);
     return new Blob([out], { type: "image/png" });
   }
 
@@ -425,7 +516,9 @@
     toBlocks,
     rebuild,
     tavernCardV2,
+    tavernCardV3,
     tavernPngV2,
+    prepareAvatar,
     lorebookJson,
     lorebooksSeparate,
     janitorJson,

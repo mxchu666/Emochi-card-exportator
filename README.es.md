@@ -4,7 +4,7 @@
 
 Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
 
-**Nuevo en 0.10.0:** Saucepan.ai, incluida la descripción que el sitio entrega como fragmentos barajados en vez de texto plano. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
+**Nuevo en 0.11.0:** las tarjetas entran en Tavo con su imagen — los dos bloques de tarjeta en el PNG, el retrato incrustado en el JSON y el avatar descargado por el service worker, para que un CDN sin cabeceras CORS deje de producir el mosaico de iniciales. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
 
 > Gratis y de código abierto. Si te resulta útil y quieres apoyar el trabajo original, pásate por [inkwell.rip](https://inkwell.rip). Eso es lo que mantiene vivos este tipo de herramientas.
 
@@ -176,6 +176,20 @@ Crushon se renderiza por completo en el cliente, así que el lector lee el regis
 
 ---
 
+## Tavo: por qué la tarjeta llegaba sin imagen
+
+Dos fallos distintos, los dos cerrados en 0.11.0.
+
+**El PNG era una tarjeta válida, pero solo en el bloque V2.** Un PNG de tarjeta guarda su JSON en bloques `tEXt` en base64: `chara` para la especificación V2 y `ccv3` para la V3. La extensión escribía solo `chara`. Tavo lee `ccv3`, no lo encuentra y responde *«No se detectaron metadatos PNG»* sobre un archivo perfectamente válido. Ahora se escriben los dos, en el mismo orden y formato que usa SillyTavern, y los tests comprueban ambos bloques y sus CRC contra `zlib.crc32`.
+
+**El JSON no tiene campo de imagen.** La especificación V2/V3 es solo texto, así que Tavo crea el personaje con el retrato vacío. La extensión ahora incrusta el retrato como data URI base64 de 512×512 (~40 KB) en `avatar`, `data.avatar` y `data.extensions.avatar`; si el frontend lee cualquiera de ellos, la imagen aparece sin ninguna petición de red. Cuando no se pudieron obtener los bytes, se escribe la URL pública.
+
+**El retrato se quedaba en las iniciales por una cabecera ausente.** La ruta anterior cargaba el avatar con `<img crossOrigin="anonymous">`, que exige `Access-Control-Allow-Origin` en la respuesta. `image-cdn.flowgpt.com` y `cdn.mokio.ai`, los dos CDN de Emochi, no la envían: la carga fallaba antes de recibir un solo byte y la exportación caía al mosaico de iniciales sin avisar. Ahora `background.js` descarga los bytes bajo un permiso de host —el worker no está sujeto a CORS—, los devuelve en base64 y el script de contenido los decodifica con `createImageBitmap`. `cdn.polyspeak.ai`, `characterai.io` y `ella.janitorai.com` sí envían la cabecera; `cdn.crushon.ai` la omite y además pide cookies.
+
+Chrome desactiva la extensión una vez tras la actualización, porque el manifiesto añade permisos de host para esos CDN. Vuelve a activarla en la página de extensiones.
+
+---
+
 ## Polybuzz: la información de antecedentes no se puede recuperar. Por esto.
 
 La guía de creación de Polybuzz enumera siete cosas de las que se compone un personaje: nombre, género, introducción corta, saludo, etiquetas, **antecedentes** y **estilo de diálogo** (más el diálogo de ejemplo que enseña el estilo). Una página pública publica cinco. Las otras dos — `systemRole` (los antecedentes, etiquetados *Antecedentes*) y `conversationExample` (los diálogos de ejemplo) — **no se envían a nadie excepto al creador de ese personaje**. Esto no es un endpoint que falte ni algo que esta extensión o cualquier otra pueda sortear, porque **los datos se ensamblan en el servidor y nunca se serializan hacia alguien que no sea el propietario**.
@@ -281,6 +295,7 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
+| 0.11.0 | PNG con `chara` + `ccv3`, retratos descargados por el worker para que un CDN sin CORS deje de dar iniciales, JSON con el retrato como data URI; 106 tests |
 | 0.10.0 | Lector de Saucepan.ai: decodificación de fragmentos, dos rutas de lectura, lorebooks, política de proveedores en la nota; 103 tests |
 | 0.9.1 | Character.ai: esquema de autenticación preservado, escalera de lectura en carga fría, respaldo con datos de renderizado; 92 tests |
 | 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 92 tests |

@@ -6,6 +6,33 @@ The narrative version — how a decision was reached, what was tried and failed 
 
 ---
 
+## 0.11.0
+
+**Tavo rejected the PNG and showed no picture for the JSON. Both had the same root: the card was correct, the delivery was not.**
+
+- **The PNG carried only the V2 chunk.** A card PNG stores its JSON in base64 `tEXt` chunks: `chara` for spec V2, `ccv3` for spec V3. The exporter wrote `chara` only. Tavo looks for `ccv3` and answers *"No se detectaron metadatos PNG"* rather than falling back to V2, so a structurally valid card was rejected. `tavernPngV2` now writes both chunks, in the order SillyTavern uses, and `tavernCardV3` builds the V3 envelope. The test asserts the chunk list `IHDR, tEXt, tEXt, IDAT, IEND`, every CRC checked with `zlib.crc32` rather than the extension's own CRC routine, and a non-Latin round trip (Japanese name, emoji in the greeting).
+- **The JSON had no image slot, and Tavo does not invent one.** The V2/V3 JSON spec is text only. The exporter now embeds the portrait as a 512×512 JPEG data URI (~40 KB) at three places a frontend might read: `avatar` (top level), `data.avatar`, `data.extensions.avatar`. When the bytes cannot be fetched, the public URL is written instead.
+- **The avatar was failing on two of the six sites and silently falling back.** The old path loaded the portrait with `<img crossOrigin="anonymous">`, which needs `Access-Control-Allow-Origin` on the image response. Measured against the live CDNs:
+
+  | Host | Response | ACAO |
+  |---|---|---|
+  | `image-cdn.flowgpt.com` (Emochi) | `200 image/webp` | none |
+  | `cdn.mokio.ai` (Emochi) | `200 image/jpeg` | none |
+  | `cdn.polyspeak.ai` (Polybuzz) | `200 image/png` | `*` |
+  | `characterai.io` | `400 text/plain` | `*` |
+  | `ella.janitorai.com` | `404 text/html` | `*` |
+  | `cdn.crushon.ai` | `403 application/xml` | none |
+
+  Emochi's portrait never loaded under a CORS-mode request, so every Emochi export used the initials tile. `background.js` now answers a `jaix:image` message by fetching the bytes under a host permission (the worker is not CORS-bound), returns base64 plus the MIME type, and the content script decodes with `createImageBitmap` — no CORS, no tainting, no `<img>`.
+- Manifest: host permissions for `ella.janitorai.com`, `*.flowgpt.com`, `*.mokio.ai`, `*.polyspeak.ai`, `*.crushon.ai`, `crushon.ai`, `www.crushon.ai`, `saucepan.ai`, `*.emochi.com`, `emochi.com`, `www.emochi.com`. Chrome disables the extension once after the update until it is re-enabled.
+- Version `0.11.0`.
+
+**Verified:** live headers from all six portrait hosts; the PNG chunk layout byte for byte against zlib; the two chunk payloads decoded back to the card; the avatar data URI round trip. **Not verified in an app:** which JSON field Tavo's own importer reads for a picture — the PNG is the documented route when the image matters.
+
+106 tests.
+
+---
+
 ## 0.10.0
 
 **Saucepan.ai, including the description that arrives as a shuffled shard list.**
