@@ -2,9 +2,9 @@
 
 **English** · [Español](README.es.md) · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** or **Crushon.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
+A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** or **Saucepan.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-**New in 0.9.0:** Character.ai and Crushon.ai readers, Polybuzz sample dialogues, an Emochi parser that stopped losing fields, and Emochi Lab. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
+**New in 0.10.0:** Saucepan.ai, including the shuffled-shard description the site serves instead of plain text. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -158,6 +158,31 @@ Crushon is fully client-rendered, so the reader reads the record the page itself
 
 **Note on field names.** Crushon's own importer maps a Tavern card inverted: card `personality` becomes Crushon's *Introduction*, card `description` becomes Crushon's *Personality*. The reader reports what Crushon publishes, in the field it belongs to on the card, so round-tripping through both tools lands the text back where it started.
 
+### Saucepan.ai
+
+1. Open a companion on [saucepan.ai](https://saucepan.ai) (`saucepan.ai/companion/...`), signed in if you want the definition and the lorebooks.
+2. Let the page finish loading, then click **Extract card** → **Quick scan**. **Deep scan** adds the lorebooks.
+3. Export.
+
+| Card field | Saucepan.ai source |
+|---|---|
+| Name, creator, avatar | the companion record |
+| Description | the tagline (`short_description`), then Profile → **Description** |
+| Personality | Core → **Information**, plus Advanced → **Advanced Prompt** and **Formatting Instructions** when the creator filled them in |
+| Greeting | the first public entry of Messages → **Starting Messages** |
+| Alternate greetings | every other public starting message |
+| Example dialogue | Messages → **Example Dialogue** |
+| Tags | the companion's tags plus its fandoms |
+| Lorebooks | each attached lorebook, one entry per chapter |
+
+**Proxies are a field, not a gate.** Saucepan labels each companion with a provider policy — *custom and vetted*, *vetted only*, or *internal only*, the last meaning no external model at all. That policy is shown on the card's note line and nothing else depends on it; a companion exports the same whether its creator allows proxies or not.
+
+**Why the description sometimes looks encrypted.** It is not encryption, it is a shard list. `GET /api/v2/companions/{id}` returns Description as `{mask, version, fragments: [{key, proof, text}]}`, where most shards are decoys carrying random text: `"signal glance window but"`, `"simple quiet maybe almost"`. A shard is real only if its `proof` matches a FNV-1a hash of its own text, seeded by the mask and by `key ^ mask`; the survivors are then sorted by `key ^ mask` and joined. `decodeFragments` in `src/saucepan.js` is that routine, and the tests run it against shards copied out of a live response. Without it you would export filler.
+
+**Public companions, with or without an open definition.** The public record always carries the name, tagline, Description, tags, fandoms, portrait and the provider policy, so a public companion always exports as a character card. The definition — Core, example dialogue, advanced prompt, formatting — is a separate route and a separate creator switch called **Definition Visibility**. When the switch is off, Saucepan does not send the text to anyone, the card comes out with those blocks empty, and the panel says which blocks the creator closed. Starting messages are likewise only served when the scenario itself is public; when none is, the greeting block is empty and the panel says so.
+
+**Companions you own** are read through `GET /api/v1/companion/editable`, which returns the raw editor record: Core text, example dialogue, advanced prompt, formatting instructions and every starting scenario regardless of its access level. Ownership is detected per scan, so your own bots come back complete even with Definition Visibility closed.
+
 ---
 
 ## Polybuzz: the background information cannot be retrieved. Here is why.
@@ -204,6 +229,32 @@ A short record, because the shape of the process explains why the limits above a
 ## Devlog
 
 The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.10.0 — Saucepan, and the description that arrives in pieces
+
+**The site is not what it looks like from outside.** `api.saucepan.ai` resets the connection for anything without a browser, which usually means Cloudflare and a dead end. It was not a dead end: the app's own base URL is the empty string, so every call goes to `https://saucepan.ai/api/...` and is proxied at the edge. Same origin, no CORS, and a static header the client stamps on every request (`cf-edge-token-8af3`). That one discovery made the whole site readable without a browser.
+
+**Then the field contract, from the bundle rather than from a guess.** The app ships one 9.8 MB bundle with the whole API in it. It declares 666 request paths. The companion editor's validation schema names every field the site stores — `card` (the Core text), `full_description`, `short_description`, `example_dialogue`, `starting_scenarios[]`, `advanced_prompt`, `formatting_instructions`, `hidden_fields`, `external_model_policy` — and the profile component names every field it renders. Two shapes, one product; the difference between them is the story of this release.
+
+**The description is a shard list with decoys in it.** The first live public companion returned this for Description:
+
+```
+{"version":1,"mask":18225,"fragments":[
+  {"text":"..well.","key":18209,"proof":2268427821},
+  {"text":"signal glance window but","key":23164,"proof":1183433097},
+  {"text":" of the ","key":18228,"proof":1032121143},
+  {"text":"most powe","key":18231,"proof":1661349743}, …]}
+```
+
+Fifty-four shards, seven of them real. The decoys are grammatical noise generated from a small word bank — *signal*, *glance*, *window*, *pattern*, *gentle*, *quiet* — so they read like prose at a glance and survive a naive "take the longest strings" heuristic. The disambiguation is in the client: each shard carries a `proof`, and a shard is real only when that proof equals a FNV-1a hash of the shard's own text with a seed derived from the mask and from `key ^ mask`. Real shards are then sorted by `key ^ mask` and joined. Seven shards reassembled to 137 characters of clean copy. The routine is now `decodeFragments`, verified against shards copied out of the live response, and the working output is quoted in the commit that added it.
+
+**Starting messages are described the same way.** `starting_scenarios_fragments[].message` is another shard set. The same decoder runs on it. A scenario the creator kept private is simply absent from the response, and a blank scenario slot is stored as the sentinel `≠≠≠BLANK_SCENARIO≠≠≠`, which the reader drops.
+
+**Proxies were the question, and the answer is `providers_profile`.** The ticket asked whether the reader works when a bot allows proxies and when it does not. The field is `external_model_policy` in the editor and `providers_profile` on the public record: `custom_and_vetted`, `vetted_only`, `internal_only`. It gates which model the chat can call, not what the profile serves, so it is reported on the note line and used for nothing else. Both cases export identically — checked against one companion of each policy.
+
+**Two read paths, because a public companion has two visibility switches.** The public record is anonymous and always carries the Description. The definition is a second call, needs the bearer token the page keeps in `localStorage["hallucination/auth_token"]`, and is refused when the creator set Definition Visibility to closed — the same shape of gate as Character.ai's, and reported the same way: a footnote naming the closed blocks, not an error. A companion you own has a third route, `/api/v1/companion/editable`, which returns the raw editor record and does not care about visibility at all.
+
+**What was not verified.** The definition and editable routes need a session, so their response shapes come from the client code that consumes them (`{sections:[{title, content}]}`, and the editor record) rather than from a signed-in call. The public route, the shard decoder, the provider policy and the scenario fragments were all exercised against live companions. 103 tests, 11 of them new.
 
 ### 0.9.0 — two gated sites, one mechanism, and an Emochi parser that had three bugs
 
@@ -265,6 +316,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
+| 0.10.0 | Saucepan.ai reader: shard decoding, two read paths, lorebooks, provider policy on the note line; 103 tests |
 | 0.9.1 | Character.ai: auth scheme preserved, cold-load reading ladder, flight-data fallback; 92 tests |
 | 0.9.0 | Character.ai and Crushon.ai readers, Polybuzz sample dialogues, Emochi parser fixes, Emochi Lab, 92 tests |
 | 0.8.0 | Renamed, six-language docs, credit section, Polybuzz evidence rewrite, Issues enabled |
@@ -285,7 +337,7 @@ Short version:
 - [x] **Priority — Emochi: some bots do not show personality or scenario.** Fixed in 0.9.0. Three causes, all in the parser: the closing instruction was treated as a cut boundary, the section grammar only accepted one exact wording, and the "creator left it blank" note fired on a layout that had not been recognised. Detail in the [changelog](CHANGELOG.md).
 - [x] **Priority — Emochi: example conversations are not being retrieved.** Fixed in 0.9.0. `characterExampleConversation` arrives as an array of turns, and string coercion turned it into `""`. It is now parsed as turns.
 - [x] **Emochi Lab support.** Story, Soundstage and LiveRoom URLs are read against the same prompt record, with the trailing path segment taken as the id. The signed-out session never exposed the Lab's own URL shape, so a surface using a different record type reports the failed route instead of returning half a card.
-- [ ] **Saucepan AI support.**
+- [x] **Saucepan AI support.** Done in 0.10.0. Public companions export with the Description and any public starting message; the definition and the lorebooks need a signed-in session, and the definition also needs the creator's Definition Visibility switch. The definition and editable routes are documented from the client code that consumes them, not from a signed-in call — if either comes back empty for you, an issue with the panel message is exactly what is needed.
 - [ ] **WyvernChat.com support.**
 - [ ] **Verify the Character.ai and Crushon.ai readers against a signed-in session.** Both hosts answer Cloudflare `403` to the machine this release was built on, so the contracts are verified but the live read is not. If either reader fails for you, an issue with the panel message is exactly what is needed.
 - [ ] **Chub.ai and Venus.chub.ai support.**
@@ -400,6 +452,22 @@ Crushon is client-rendered and sits behind Cloudflare, so there is nothing worth
 - Relative avatar paths are resolved against `https://crushon.ai`.
 - **The field names are inverted relative to a Tavern card.** Crushon's importer maps card `personality` → Crushon *Introduction* and card `description` → Crushon *Personality*. The reader writes what the site publishes into the card field that means the same thing, so a round trip is stable.
 - Same capture mechanism as Character.ai: `src/intercept.js` in the page world, `src/harvest.js` scoring the collected payloads by how many known keys an object carries. No token is needed because nothing is replayed.
+
+### Saucepan.ai API notes
+
+Saucepan is a single-page app whose API is same-origin and proxied at the edge, so everything is readable from the page's own session without CORS and without a `MAIN`-world script.
+
+- The client's base URL is `""`, so requests go to `https://saucepan.ai/api/...`, not to `api.saucepan.ai` — that host resets the connection for anything that is not the edge. Every request carries the static header `cf-edge-token-8af3: e3b0c44298fc1c14`. Without it the edge closes the socket.
+- Auth is `Authorization: Bearer <jwt>`, read from `localStorage["hallucination/auth_token"]` (refresh token in `hallucination/refresh_token`). A content script shares `localStorage` with the page, so no interception is needed.
+- `GET /api/v2/companions/{id}` is anonymous and answers `{companion: {...}, is_favorited, has_shares, playbook, companion_banner, author_suggested_companions_position}`. A missing id answers `{"error":{"code":"request.not_found","message":"Companion not found."}}`.
+- The companion object: `id`, `author_id`, `author_handle`, `name`, `display_name`, `short_description`, `tags[]`, `fandom_tags[{id, display_name}]`, `image{id}`, `sus`, `very_sus`, `access_level` (`public` | `unlisted` | `private` | `development`), `providers_profile`, `hidden_fields`, `open_definition`, `locked_starting_message`, `has_playbook`, `unlocked_portraits`, the `*_token_count` stats and `full_description_fragments`.
+- **Description is a shard set.** `{version, mask, fragments: [{key, proof, text}]}`. Keep a fragment when `fnv1a(seed = 0x811c9dc5 ^ rotl(mask,7) ^ rotl(key ^ mask,13), text)` equals `proof`, then sort the survivors by `key ^ mask` and concatenate. Decoys outnumber real shards roughly seven to one and are generated from a fixed word bank. `starting_scenarios_fragments[].message` uses the same structure, one set per scenario, alongside `access_level`, `is_locked`, `id` and `title`.
+- `≠≠≠BLANK_SCENARIO≠≠≠` is the sentinel for an empty scenario slot in the editor record.
+- `GET /api/v1/companion/definition?companion_id=<id>` (bearer) answers `{sections: [{title, content}]}`. The four titles are `Companion Core`, `Example Dialogue`, `Advanced Prompt`, `Response Formatting Instructions`. `hidden_fields` is a bitfield over exactly those four — `16` core, `8` example, `4` advanced, `2` formatting, all four set means fully closed.
+- `GET /api/v1/companion/editable?id=<id>` (bearer) returns the raw editor record for a companion you own or co-own: `card`, `full_description`, `short_description`, `example_dialogue`, `advanced_prompt`, `formatting_instructions`, `starting_scenarios[]`, `portraits[]`, `multiple_scenarios`, `external_model_policy`. Someone else's companion answers `403`.
+- `providers_profile` / `external_model_policy` is `custom_and_vetted` | `vetted_only` | `internal_only`. It gates the chat's model choice, not profile reads.
+- `GET /api/v2/companions/{id}/lorebooks` (bearer) answers `{lorebooks: [...]}`. `GET /api/v2/lorebooks/{id}/chapters` answers `{chapters: [{id, title, text, ...}]}` — the body field is `text`, not `content`. A chapter carries no trigger list, so the reader uses its title as the key and leaves untitled chapters constant.
+- Companion search (`POST /api/v1/search`) refuses an anonymous caller with `403 auth.permission_denied`; post and collection search do not, which is how a companion id can still be found without a session.
 
 ---
 

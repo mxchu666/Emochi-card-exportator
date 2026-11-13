@@ -2,9 +2,9 @@
 
 [English](README.md) · [Español](README.es.md) · [日本語](README.ja.md) · **Italiano** · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Un'estensione per browser che legge un personaggio da **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** o **Crushon.ai** e lo salva come scheda personaggio portabile, così puoi farne un backup o portarlo su un altro frontend. Nessun account, nessuna compilazione, nessun server. Funziona nel tuo browser, con la tua sessione.
+Un'estensione per browser che legge un personaggio da **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** e lo salva come scheda personaggio portabile, così puoi farne un backup o portarlo su un altro frontend. Nessun account, nessuna compilazione, nessun server. Funziona nel tuo browser, con la tua sessione.
 
-**Novità in 0.9.0:** lettori Character.ai e Crushon.ai, dialoghi di esempio di Polybuzz, un parser Emochi che ha smesso di perdere campi, ed Emochi Lab. Tutti i dettagli nel [changelog](CHANGELOG.md) e nel [devlog](#devlog).
+**Novità in 0.10.0:** Saucepan.ai, compresa la descrizione che il sito consegna come frammenti mescolati invece che come testo semplice. Tutti i dettagli nel [changelog](CHANGELOG.md) e nel [devlog](#devlog).
 
 > Gratis e open source. Se ti è utile e vuoi sostenere il lavoro originale, dai un'occhiata a [inkwell.rip](https://inkwell.rip). È quello che tiene in vita strumenti come questo.
 
@@ -153,7 +153,31 @@ Il lettore lavora osservando le richieste della pagina stessa: un piccolo script
 Crushon è interamente renderizzato lato client, quindi il lettore legge il record che la pagina ha già renderizzato invece di chiamare un'API. Gli alias dei campi coprono ogni grafia che il sito ha usato tra le versioni: `firstMessage` / `first_mes` / `greeting`, `description` / `introduction` / `intro`, `avatar` / `avatarUrl` / `image`, `mes_example` / `exampleDialogue` / `dialogue`. Se la pagina non ha ancora richiesto il personaggio, ricaricala e riscansiona.
 
 **Nota sui nomi dei campi.** L'importatore di Crushon mappa una scheda Tavern al contrario: la `personality` della scheda diventa l'*Introduction* di Crushon, e la `description` della scheda diventa la *Personality* di Crushon. Il lettore riporta ciò che Crushon pubblica nel campo che significa la stessa cosa sulla scheda, così il passaggio per entrambi gli strumenti lascia il testo dov'era.
-| Tag, avatar, nome, autore | il record della scena |
+
+### Saucepan.ai
+
+1. Apri un companion su [saucepan.ai](https://saucepan.ai) (`saucepan.ai/companion/...`), con la sessione attiva se vuoi la definizione e i lorebook.
+2. Lascia che la pagina finisca di caricare, poi **Extract card** → **Quick scan**. **Deep scan** aggiunge i lorebook.
+3. Esporta.
+
+| Campo della scheda | Origine in Saucepan.ai |
+|---|---|
+| Nome, autore, avatar | il record del companion |
+| Descrizione | lo slogan (`short_description`), poi Profilo → **Description** |
+| Personalità | Core → **Information**, più Avanzato → **Advanced Prompt** e **Formatting Instructions** quando l'autore li ha compilati |
+| Saluto | la prima voce pubblica di Messaggi → **Starting Messages** |
+| Saluti alternativi | ogni altro messaggio iniziale pubblico |
+| Dialogo di esempio | Messaggi → **Example Dialogue** |
+| Tag | quelli del companion più i suoi fandom |
+| Lorebook | ogni lorebook collegato, una voce per capitolo |
+
+**I proxy sono un campo, non un cancello.** Saucepan etichetta ogni companion con una politica dei provider — *custom and vetted*, *vetted only* oppure *internal only*, l'ultima significa nessun modello esterno. Quella politica compare nella riga di nota della scheda e nient'altro dipende da lei; un companion si esporta allo stesso modo che i proxy siano permessi o no.
+
+**Perché la descrizione a volte sembra cifrata.** Non è cifratura, è una lista di frammenti. `GET /api/v2/companions/{id}` restituisce la Description come `{mask, version, fragments: [{key, proof, text}]}`, dove la maggior parte dei frammenti sono esche con testo casuale: `"signal glance window but"`, `"simple quiet maybe almost"`. Un frammento è reale solo se il suo `proof` coincide con un hash FNV-1a del suo stesso testo, con seme dato dalla maschera e da `key ^ mask`; i superstiti vengono ordinati per `key ^ mask` e uniti. `decodeFragments` in `src/saucepan.js` è quella routine, e i test la eseguono su frammenti copiati da una risposta reale. Senza, esporteresti riempitivo.
+
+**Companion pubblici, con o senza definizione aperta.** Il record pubblico porta sempre nome, slogan, Description, tag, fandom, ritratto e politica dei provider, quindi un companion pubblico si esporta sempre come scheda personaggio. La definizione — Core, dialogo di esempio, prompt avanzato, formato — è un'altra rotta e un altro interruttore dell'autore chiamato **Definition Visibility**. Quando è chiuso, Saucepan non invia il testo a nessuno, la scheda esce con quei blocchi vuoti e il pannello dice quali blocchi ha chiuso l'autore. I messaggi iniziali vengono serviti comunque solo quando lo scenario è pubblico; quando non ce n'è nessuno, il blocco del saluto resta vuoto e il pannello lo dice.
+
+**I companion che possiedi** si leggono con `GET /api/v1/companion/editable`, che restituisce il record grezzo dell'editor: testo di Core, dialogo di esempio, prompt avanzato, istruzioni di formato e ogni scenario iniziale a prescindere dal suo livello di accesso. La proprietà viene rilevata a ogni scansione, quindi i tuoi bot escono completi anche con Definition Visibility chiuso.
 
 ---
 
@@ -262,6 +286,7 @@ Versione breve:
 
 | Versione | Cosa è arrivato |
 |---|---|
+| 0.10.0 | Lettore Saucepan.ai: decodifica dei frammenti, due rotte di lettura, lorebook, politica dei provider nella nota; 103 test |
 | 0.9.1 | Character.ai: schema di autenticazione preservato, scaletta di lettura a freddo, fallback sui dati renderizzati, 92 test |
 | 0.9.0 | Lettori Character.ai e Crushon.ai, dialoghi di esempio Polybuzz, correzioni al parser Emochi, Emochi Lab, 92 test |
 | 0.8.0 | Rinomina, documentazione in sei lingue, sezione crediti, riscrittura delle prove Polybuzz, Issues abilitato |
@@ -282,7 +307,7 @@ Versione breve:
 - [x] **Priorità — Emochi: alcuni bot non mostrano personalità o scenario.** Risolto in 0.9.0. Tre cause, tutte nel parser: l'istruzione di chiusura trattata come confine di taglio, la grammatica delle sezioni che accettava una sola formulazione, e la nota «l'autore l'ha lasciato vuoto» che scattava su un layout non riconosciuto. Dettagli nel [changelog](CHANGELOG.md).
 - [x] **Priorità — Emochi: le conversazioni di esempio non vengono recuperate.** Risolto in 0.9.0. `characterExampleConversation` arriva come array di turni e la conversione a stringa lo riduceva a `""`. Ora viene analizzato come turni.
 - [x] **Supporto Emochi Lab.** Gli URL di Story, Soundstage e LiveRoom vengono letti come lo stesso record di prompt, prendendo l'ultimo segmento del percorso come id. La sessione non autenticata non ha mai mostrato la forma reale degli URL del Lab, quindi una superficie con un tipo di record diverso segnala la rotta fallita invece di restituire mezza scheda.
-- [ ] **Aggiungere il supporto a Saucepan AI.**
+- [x] **Aggiungere il supporto a Saucepan AI.** Fatto in 0.10.0. I companion pubblici si esportano con la Description e con ogni messaggio iniziale pubblico; la definizione e i lorebook richiedono una sessione attiva, e la definizione anche l'interruttore Definition Visibility dell'autore. Le rotte definizione ed editable sono documentate dal codice del client che le consuma, non da una chiamata autenticata; se una ti torna vuota, un issue con il messaggio del pannello è esattamente ciò che serve.
 - [ ] **Aggiungere il supporto a WyvernChat.com.**
 - [ ] **Verificare i lettori Character.ai e Crushon.ai con una sessione attiva.** Entrambi gli host rispondono `403` di Cloudflare alla macchina su cui è stata costruita questa versione, quindi i contratti sono verificati ma la lettura dal vivo no. Se uno dei due lettori non funziona per te, un issue con il messaggio del pannello è esattamente ciò che serve.
 - [ ] **Aggiungere il supporto a Chub.ai e Venus.chub.ai.**

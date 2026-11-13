@@ -6,6 +6,25 @@ The narrative version — how a decision was reached, what was tried and failed 
 
 ---
 
+## 0.10.0
+
+**Saucepan.ai, including the description that arrives as a shuffled shard list.**
+
+- New reader `src/saucepan.js`. Reads name, tagline, Description, tags, fandoms, portrait, the provider policy and every public starting message from `GET /api/v2/companions/{id}`, and reads the creator's definition from `GET /api/v1/companion/definition` when the session allows it. Companions you own are read from `GET /api/v1/companion/editable`, which ignores visibility.
+- **Description is not plain text on this site.** The public record returns `{version, mask, fragments: [{key, proof, text}]}` — a set of text shards where most entries are decoys generated from a small word bank (`"signal glance window but"`, `"simple quiet maybe almost"`). A shard is real only when `proof` matches an FNV-1a hash of its own text, seeded by `mask` and by `key ^ mask`; the survivors are sorted by `key ^ mask` and joined. `decodeFragments()` implements it, and the tests run it against shards copied verbatim out of a live response (54 shards, 7 real, 137 characters of clean copy).
+- `starting_scenarios_fragments[].message` uses the same shard structure, so the starting messages decode through the same routine. The blank-scenario sentinel `≠≠≠BLANK_SCENARIO≠≠≠` is dropped.
+- **Proxies are reported, never gated on.** `providers_profile` (`custom_and_vetted` | `vetted_only` | `internal_only`) rides on the card's note line next to the visibility. Both proxy-allowing and proxy-refusing companions export identically; verified against one of each.
+- **Two visibility switches, reported like Character.ai's.** The public record always carries the Description. The definition sits behind a separate **Definition Visibility** switch and a bearer call; when it is closed the panel names the blocks the creator closed instead of showing an error. Starting messages are served only when the scenario itself is public, and an empty greeting says so.
+- Deep scan reads attached lorebooks: `GET /api/v2/companions/{id}/lorebooks`, then `/api/v2/lorebooks/{id}/chapters`. A chapter has a title and a `text` body and no trigger list, so the title becomes the key and an untitled chapter is marked constant.
+- Transport is same-origin: the client's base URL is `""`, so the API is `https://saucepan.ai/api/...` behind the edge proxy, with the static `cf-edge-token-8af3` header and the page's own bearer token from `localStorage["hallucination/auth_token"]`. No `MAIN`-world sniffer, no service-worker replay, no CORS.
+- `manifest.json`: one content-script block for `https://saucepan.ai/*`, three files, no host permission needed because the fetch is same-origin. Web accessible resources extended to the new host.
+
+**Verified live:** the anonymous companion route, the shard decoder against real payloads, `providers_profile` on both policy values, the fragment-based starting messages, and the `request.not_found` shape for a bad id. **Not verified:** the definition and editable routes need a session, so their response shapes come from the client code that consumes them (`{sections: [{title, content}]}` and the editor record) — the same standard as the 0.9.x readers, and noted in the to-do list.
+
+103 tests.
+
+---
+
 ## 0.9.1
 
 **Character.ai used the wrong auth scheme, and a cold profile URL had nothing to read.**

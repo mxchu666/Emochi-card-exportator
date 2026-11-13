@@ -2,9 +2,9 @@
 
 [English](README.md) · **Español** · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai** o **Crushon.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
+Una extensión de navegador que lee un personaje de **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** o **Saucepan.ai** y lo guarda como una tarjeta de personaje portable, para que puedas hacer una copia de seguridad o llevarlo a otro frontend. Sin cuenta, sin compilación, sin servidor. Se ejecuta en tu propio navegador, con tu propia sesión.
 
-**Nuevo en 0.9.0:** lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, un parser de Emochi que dejó de perder campos, y el Emochi Lab. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
+**Nuevo en 0.10.0:** Saucepan.ai, incluida la descripción que el sitio entrega como fragmentos barajados en vez de texto plano. Todo el detalle está en el [changelog](CHANGELOG.md) y en el [devlog](#devlog).
 
 > Gratis y de código abierto. Si te resulta útil y quieres apoyar el trabajo original, pásate por [inkwell.rip](https://inkwell.rip). Eso es lo que mantiene vivos este tipo de herramientas.
 
@@ -149,6 +149,31 @@ Crushon se renderiza por completo en el cliente, así que el lector lee el regis
 
 **Nota sobre los nombres de campo.** El importador de Crushon mapea una tarjeta Tavern invertida: la `personality` de la tarjeta se convierte en la *Introduction* de Crushon, y la `description` de la tarjeta se convierte en la *Personality* de Crushon. El lector informa lo que Crushon publica en el campo al que pertenece en la tarjeta, así que pasar por ambas herramientas deja el texto donde estaba.
 
+### Saucepan.ai
+
+1. Abre un companion en [saucepan.ai](https://saucepan.ai) (`saucepan.ai/companion/...`), con la sesión iniciada si quieres la definición y los lorebooks.
+2. Deja que la página termine de cargar y pulsa **Extract card** → **Quick scan**. **Deep scan** añade los lorebooks.
+3. Exporta.
+
+| Campo de la tarjeta | Origen en Saucepan.ai |
+|---|---|
+| Nombre, creador, avatar | el registro del companion |
+| Descripción | el eslogan (`short_description`) y después Perfil → **Description** |
+| Personalidad | Core → **Information**, más Avanzado → **Advanced Prompt** y **Formatting Instructions** cuando el creador los rellenó |
+| Saludo | la primera entrada pública de Mensajes → **Starting Messages** |
+| Saludos alternativos | los demás mensajes de inicio públicos |
+| Diálogo de ejemplo | Mensajes → **Example Dialogue** |
+| Etiquetas | las del companion más sus fandoms |
+| Lorebooks | cada lorebook adjunto, una entrada por capítulo |
+
+**Los proxies son un campo, no una puerta.** Saucepan etiqueta cada companion con una política de proveedores — *custom and vetted*, *vetted only* o *internal only*, la última significa ningún modelo externo. Esa política aparece en la línea de nota de la tarjeta y nada más depende de ella; un companion se exporta igual permita proxies o no.
+
+**Por qué la descripción a veces parece cifrada.** No es cifrado, es una lista de fragmentos. `GET /api/v2/companions/{id}` devuelve la Description como `{mask, version, fragments: [{key, proof, text}]}`, donde la mayoría de los fragmentos son señuelos con texto aleatorio: `"signal glance window but"`, `"simple quiet maybe almost"`. Un fragmento es real solo si su `proof` coincide con un hash FNV-1a de su propio texto, sembrado con la máscara y con `key ^ mask`; los supervivientes se ordenan por `key ^ mask` y se unen. `decodeFragments` en `src/saucepan.js` es esa rutina, y los tests la ejecutan contra fragmentos copiados de una respuesta real. Sin ella exportarías relleno.
+
+**Companions públicos, con o sin definición abierta.** El registro público siempre lleva el nombre, el eslogan, la Description, las etiquetas, los fandoms, el retrato y la política de proveedores, así que un companion público siempre se exporta como tarjeta de personaje. La definición —Core, diálogo de ejemplo, prompt avanzado, formato— es otra ruta y otro interruptor del creador llamado **Definition Visibility**. Cuando está cerrado, Saucepan no envía el texto a nadie, la tarjeta sale con esos bloques vacíos y el panel dice qué bloques cerró el creador. Los mensajes de inicio se sirven igualmente solo cuando el escenario es público; cuando no hay ninguno, el bloque de saludo queda vacío y el panel lo dice.
+
+**Los companions que son tuyos** se leen con `GET /api/v1/companion/editable`, que devuelve el registro crudo del editor: texto de Core, diálogo de ejemplo, prompt avanzado, instrucciones de formato y todos los escenarios de inicio sin importar su nivel de acceso. La propiedad se detecta en cada escaneo, así que tus propios bots salen completos aunque Definition Visibility esté cerrado.
+
 ---
 
 ## Polybuzz: la información de antecedentes no se puede recuperar. Por esto.
@@ -256,6 +281,7 @@ Versión corta:
 
 | Versión | Qué llegó |
 |---|---|
+| 0.10.0 | Lector de Saucepan.ai: decodificación de fragmentos, dos rutas de lectura, lorebooks, política de proveedores en la nota; 103 tests |
 | 0.9.1 | Character.ai: esquema de autenticación preservado, escalera de lectura en carga fría, respaldo con datos de renderizado; 92 tests |
 | 0.9.0 | Lectores de Character.ai y Crushon.ai, diálogos de ejemplo de Polybuzz, arreglos del parser de Emochi, Emochi Lab, 92 tests |
 | 0.8.0 | Renombrado, documentación en seis idiomas, sección de crédito, reescritura de la evidencia de Polybuzz, Issues habilitado |
@@ -276,7 +302,7 @@ Versión corta:
 - [x] **Prioridad — Emochi: algunos bots no muestran personalidad ni escenario.** Arreglado en 0.9.0. Tres causas, todas en el parser: la instrucción de cierre se trataba como límite de corte, la gramática de secciones solo aceptaba una redacción exacta, y la nota de «el creador lo dejó vacío» se disparaba con una estructura que no se había reconocido. Detalle en el [changelog](CHANGELOG.md).
 - [x] **Prioridad — Emochi: no se están recuperando las conversaciones de ejemplo.** Arreglado en 0.9.0. `characterExampleConversation` llega como array de turnos y la coerción a cadena lo convertía en `""`. Ahora se parsea como turnos.
 - [x] **Soporte del Emochi Lab.** Las URLs de Story, Soundstage y LiveRoom se leen contra el mismo registro de prompt, tomando el último segmento de la ruta como id. La sesión sin iniciar nunca expuso la forma real de las URLs del Lab, así que una superficie con otro tipo de registro informa de la ruta fallida en lugar de devolver media tarjeta.
-- [ ] **Añadir soporte para Saucepan AI.**
+- [x] **Añadir soporte para Saucepan AI.** Hecho en 0.10.0. Los companions públicos se exportan con la Description y cualquier mensaje de inicio público; la definición y los lorebooks necesitan sesión iniciada, y la definición además el interruptor Definition Visibility del creador. Las rutas de definición y editable están documentadas a partir del código del cliente que las consume, no de una llamada con sesión; si alguna te vuelve vacía, un issue con el mensaje del panel es exactamente lo que hace falta.
 - [ ] **Añadir soporte para WyvernChat.com.**
 - [ ] **Verificar los lectores de Character.ai y Crushon.ai contra una sesión iniciada.** Los dos hosts responden `403` de Cloudflare a la máquina donde se construyó esta versión, así que los contratos están verificados pero la lectura en vivo no. Si alguno de los dos lectores falla en tu caso, un issue con el mensaje del panel es exactamente lo que hace falta.
 - [ ] **Añadir soporte para Chub.ai y Venus.chub.ai.**
